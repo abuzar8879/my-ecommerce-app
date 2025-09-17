@@ -161,6 +161,7 @@ const CartProvider = ({ children }) => {
 
   const clearCart = () => {
     setCartItems([]);
+    localStorage.removeItem('shopmate_cart');
   };
 
   const getTotalPrice = () => {
