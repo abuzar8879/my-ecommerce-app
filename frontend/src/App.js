@@ -108,7 +108,16 @@ const useAuth = () => {
 const CartContext = createContext();
 
 const CartProvider = ({ children }) => {
-  const [cartItems, setCartItems] = useState([]);
+  const [cartItems, setCartItems] = useState(() => {
+    // Initialize cart from localStorage
+    try {
+      const savedCart = localStorage.getItem('shopmate_cart');
+      return savedCart ? JSON.parse(savedCart) : [];
+    } catch (error) {
+      console.error('Error loading cart from localStorage:', error);
+      return [];
+    }
+  });
 
   const addToCart = (product, quantity = 1) => {
     setCartItems(prev => {
