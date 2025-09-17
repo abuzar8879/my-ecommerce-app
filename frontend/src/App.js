@@ -119,6 +119,15 @@ const CartProvider = ({ children }) => {
     }
   });
 
+  // Save cart to localStorage whenever cartItems changes
+  React.useEffect(() => {
+    try {
+      localStorage.setItem('shopmate_cart', JSON.stringify(cartItems));
+    } catch (error) {
+      console.error('Error saving cart to localStorage:', error);
+    }
+  }, [cartItems]);
+
   const addToCart = (product, quantity = 1) => {
     setCartItems(prev => {
       const existingItem = prev.find(item => item.product.id === product.id);
