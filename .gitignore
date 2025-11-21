@@ -78,3 +78,20 @@ agenthub/agents/youtube/db
 
 # Mobile development
 android-sdk/ 
+
+
+# Project Specific – MUST IGNORE
+backend/.env
+frontend/.env
+
+backend/uploads/
+frontend/uploads/
+
+yarn.lock
+frontend/yarn.lock
+
+test_email.py
+BlackBook.txt
+TODO.md
+frontend/ORDER_SYSTEM_TODO.md
+frontend/node_modules/.cache/default-development/2.pack_
