@@ -1,6 +1,9 @@
 import React, { useState, useEffect, createContext, useContext } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import axios from 'axios';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
 import './App.css';
 
 // Import UI components
@@ -11,15 +14,40 @@ import { Label } from './components/ui/label';
 import { Badge } from './components/ui/badge';
 import { Separator } from './components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './components/ui/dialog';
 import { toast } from 'sonner';
 import { Toaster } from './components/ui/sonner';
 
 // Icons
-import { ShoppingCart, User, Star, Package, Users, BarChart3, Ticket, Plus, Minus, CreditCard, LogOut, Menu, X, Search, Filter, ArrowRight, Mail, Phone, MapPin, HelpCircle } from 'lucide-react';
+import { ShoppingCart, User, Star, Package, Users, BarChart3, Ticket, Plus, Minus, CreditCard, LogOut, Menu, X, Search, Filter, ArrowRight, Mail, Phone, MapPin, HelpCircle, Trash2, Send } from 'lucide-react';
+
+
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+const API = `${BACKEND_URL}`;
+
+// Profile form validation schema (moved to ProfileInfo component)
+
+// Import Admin Components
+import ProductManagement from './components/admin/ProductManagement';
+import UserManagement from './components/admin/UserManagement';
+import OrderManagement from './components/admin/OrderManagement';
+import SupportTicketManagement from './components/admin/SupportTicketManagement';
+
+// Import CheckoutPage
+import CheckoutPage from './components/CheckoutPage';
+
+// Import OrderSuccessPage
+import OrderSuccessPage from './components/OrderSuccessPage';
+
+// Import Profile Components
+import ProfileLayout from './components/ProfileLayout';
+import ProfileInfo from './components/ProfileInfo';
+import MyTicketsPage from './components/MyTicketsPage';
+import SettingsPage from './components/SettingsPage';
+import OrderHistoryPage from './components/OrderHistoryPage';
+
+// Import Error Boundary
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Auth Context
 const AuthContext = createContext();
@@ -40,7 +68,7 @@ const AuthProvider = ({ children }) => {
 
   const fetchUser = async () => {
     try {
-      const response = await axios.get(`${API}/auth/me`);
+      const response = await axios.get(`${API}/api/auth/me`);
       setUser(response.data);
     } catch (error) {
       localStorage.removeItem('token');
@@ -50,11 +78,15 @@ const AuthProvider = ({ children }) => {
     }
   };
 
+  const updateUser = (updatedUserData) => {
+    setUser(updatedUserData);
+  };
+
   const login = async (email, password) => {
     try {
-      const response = await axios.post(`${API}/auth/login`, { email, password });
+      const response = await axios.post(`${API}/api/auth/login`, { email, password });
       const { access_token, user: userData } = response.data;
-      
+
       localStorage.setItem('token', access_token);
       axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
       setUser(userData);
@@ -68,9 +100,9 @@ const AuthProvider = ({ children }) => {
 
   const register = async (name, email, password) => {
     try {
-      const response = await axios.post(`${API}/auth/register`, { name, email, password });
+      const response = await axios.post(`${API}/api/auth/register`, { name, email, password });
       const { access_token, user: userData } = response.data;
-      
+
       localStorage.setItem('token', access_token);
       axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
       setUser(userData);
@@ -89,8 +121,16 @@ const AuthProvider = ({ children }) => {
     toast.success('Logged out successfully');
   };
 
+  // Make updateUser available globally for components that need it
+  useEffect(() => {
+    window.updateUserContext = updateUser;
+    return () => {
+      delete window.updateUserContext;
+    };
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, login, register, logout, loading }}>
+    <AuthContext.Provider value={{ user, login, register, logout, loading, updateUser }}>
       {children}
     </AuthContext.Provider>
   );
@@ -103,6 +143,8 @@ const useAuth = () => {
   }
   return context;
 };
+
+export { useAuth, useCart };
 
 // Cart Context
 const CartContext = createContext();
@@ -211,23 +253,30 @@ const Navigation = () => {
             </a>
           </div>
 
-          {/* Desktop Navigation */}
+          
+          {/* Desktop Navigation  */}
+          
           <div className="hidden md:flex items-center space-x-8">
-            <a href="/" className="text-gray-700 hover:text-gray-900 transition-colors">Home</a>
-            <a href="/products" className="text-gray-700 hover:text-gray-900 transition-colors">Products</a>
-            <a href="/help" className="text-gray-700 hover:text-gray-900 transition-colors">Help</a>
-            <a href="/contact" className="text-gray-700 hover:text-gray-900 transition-colors">Contact</a>
+            {user?.role !== 'admin' && (
+              <>
+                <a href="/products" className="text-gray-700 hover:text-gray-900 transition-colors">Products</a>
+                <a href="/help" className="text-gray-700 hover:text-gray-900 transition-colors">Help</a>
+                <a href="/contact" className="text-gray-700 hover:text-gray-900 transition-colors">Contact</a>
+              </>
+            )}
           </div>
 
           <div className="flex items-center space-x-4">
-            <a href="/cart" className="relative p-2 text-gray-700 hover:text-gray-900 transition-colors">
-              <ShoppingCart className="h-6 w-6" />
-              {getTotalItems() > 0 && (
-                <Badge className="absolute -top-1 -right-1 px-2 py-1 text-xs bg-red-500 text-white">
-                  {getTotalItems()}
-                </Badge>
-              )}
-            </a>
+            {user?.role !== 'admin' && (
+              <a href="/cart" className="relative p-2 text-gray-700 hover:text-gray-900 transition-colors">
+                <ShoppingCart className="h-6 w-6" />
+                {getTotalItems() > 0 && (
+                  <Badge className="absolute -top-1 -right-1 px-2 py-1 text-xs bg-red-500 text-white">
+                    {getTotalItems()}
+                  </Badge>
+                )}
+              </a>
+            )}
 
             {user ? (
               <div className="flex items-center space-x-4">
@@ -275,10 +324,13 @@ const Navigation = () => {
         {mobileMenuOpen && (
           <div className="md:hidden border-t bg-white py-4">
             <div className="flex flex-col space-y-4">
-              <a href="/" className="text-gray-700 hover:text-gray-900 transition-colors">Home</a>
-              <a href="/products" className="text-gray-700 hover:text-gray-900 transition-colors">Products</a>
-              <a href="/help" className="text-gray-700 hover:text-gray-900 transition-colors">Help</a>
-              <a href="/contact" className="text-gray-700 hover:text-gray-900 transition-colors">Contact</a>
+              {user?.role !== 'admin' && (
+                <>
+                  <a href="/products" className="text-gray-700 hover:text-gray-900 transition-colors">Products</a>
+                  <a href="/help" className="text-gray-700 hover:text-gray-900 transition-colors">Help</a>
+                  <a href="/contact" className="text-gray-700 hover:text-gray-900 transition-colors">Contact</a>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -289,20 +341,28 @@ const Navigation = () => {
 
 // Home Page
 const HomePage = () => {
+  const { user } = useAuth();
   const [featuredProducts, setFeaturedProducts] = useState([]);
 
   useEffect(() => {
-    fetchFeaturedProducts();
-  }, []);
+    if (!user || user.role !== 'admin') {
+      fetchFeaturedProducts();
+    }
+  }, [user]);
 
   const fetchFeaturedProducts = async () => {
     try {
-      const response = await axios.get(`${API}/products`);
+      const response = await axios.get(`${API}/api/products`);
       setFeaturedProducts(response.data.slice(0, 6));
     } catch (error) {
       console.error('Error fetching featured products:', error);
     }
   };
+
+  // Admin users are redirected to admin dashboard by default
+  if (user && user.role === 'admin') {
+    return <Navigate to="/admin" replace />;
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
@@ -407,7 +467,7 @@ const ProductCard = ({ product }) => {
         <h3 className="font-semibold text-lg mb-2 text-gray-900">{product.name}</h3>
         <p className="text-gray-600 text-sm mb-3 line-clamp-2">{product.description}</p>
         <div className="flex items-center justify-between mb-4">
-          <span className="text-2xl font-bold text-blue-600">${product.price}</span>
+          <span className="text-2xl font-bold text-blue-600">₹{product.price}</span>
           <Badge variant="secondary">{product.category}</Badge>
         </div>
         <div className="flex items-center justify-between">
@@ -442,7 +502,7 @@ const ProductsPage = () => {
       if (searchTerm) params.append('search', searchTerm);
       if (selectedCategory) params.append('category', selectedCategory);
       
-      const response = await axios.get(`${API}/products?${params}`);
+      const response = await axios.get(`${API}/api/products?${params}`);
       setProducts(response.data);
       
       // Extract unique categories
@@ -505,6 +565,10 @@ const CartPage = () => {
   const { user } = useAuth();
   const [isCheckingOut, setIsCheckingOut] = useState(false);
 
+  if (user?.role === 'admin') {
+    return <Navigate to="/admin" replace />;
+  }
+
   const handleCheckout = async () => {
     if (!user) {
       toast.error('Please login to checkout');
@@ -516,25 +580,8 @@ const CartPage = () => {
       return;
     }
 
-    setIsCheckingOut(true);
-    try {
-      const cart_items = cartItems.map(item => ({
-        product_id: item.product.id,
-        quantity: item.quantity
-      }));
-
-      const response = await axios.post(`${API}/payments/checkout`, {
-        cart_items,
-        host_url: window.location.origin
-      });
-
-      // Redirect to Stripe checkout
-      window.location.href = response.data.checkout_url;
-    } catch (error) {
-      toast.error('Checkout failed: ' + (error.response?.data?.detail || 'Unknown error'));
-    } finally {
-      setIsCheckingOut(false);
-    }
+    // Navigate to /checkout page instead of performing API call
+    window.location.href = '/checkout';
   };
 
   if (cartItems.length === 0) {
@@ -557,7 +604,7 @@ const CartPage = () => {
       <div className="max-w-4xl mx-auto px-4">
         <h1 className="text-3xl font-bold mb-8">Shopping Cart</h1>
         
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-4">
             {cartItems.map(item => (
               <Card key={item.product.id} className="p-6">
@@ -600,7 +647,7 @@ const CartPage = () => {
                   </div>
                   
                   <div className="text-right">
-                    <p className="font-semibold">${(item.product.price * item.quantity).toFixed(2)}</p>
+                    <p className="font-semibold">₹{(item.product.price * item.quantity).toFixed(2)}</p>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -621,7 +668,7 @@ const CartPage = () => {
               <div className="space-y-2 mb-4">
                 <div className="flex justify-between">
                   <span>Subtotal</span>
-                  <span>${getTotalPrice().toFixed(2)}</span>
+                  <span>₹{getTotalPrice().toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Shipping</span>
@@ -811,6 +858,10 @@ const CheckoutSuccessPage = () => {
   const [paymentStatus, setPaymentStatus] = useState('pending');
   const [isLoading, setIsLoading] = useState(true);
 
+  if (user?.role === 'admin') {
+    return <Navigate to="/admin" replace />;
+  }
+
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const session_id = urlParams.get('session_id');
@@ -925,9 +976,17 @@ const HelpPage = () => {
     description: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeTab, setActiveTab] = useState('faq');
 
   useEffect(() => {
     fetchFAQs();
+
+    // Check URL parameters for tab
+    const urlParams = new URLSearchParams(window.location.search);
+    const tab = urlParams.get('tab');
+    if (tab === 'support') {
+      setActiveTab('support');
+    }
   }, []);
 
   const fetchFAQs = async () => {
@@ -944,7 +1003,7 @@ const HelpPage = () => {
     setIsSubmitting(true);
     
     try {
-      await axios.post(`${API}/support/tickets`, supportForm);
+      await axios.post(`${API}/api/support/tickets`, supportForm);
       toast.success('Support ticket submitted successfully!');
       setSupportForm({ name: '', email: '', subject: '', description: '' });
     } catch (error) {
@@ -959,7 +1018,7 @@ const HelpPage = () => {
       <div className="max-w-4xl mx-auto px-4">
         <h1 className="text-4xl font-bold text-center mb-8">Help Center</h1>
         
-        <Tabs defaultValue="faq" className="w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="faq">FAQ</TabsTrigger>
             <TabsTrigger value="support">Contact Support</TabsTrigger>
@@ -1136,23 +1195,44 @@ const ContactPage = () => {
   );
 };
 
-// Admin Dashboard (Basic - for demo)
+// Admin Dashboard
 const AdminDashboard = () => {
   const { user } = useAuth();
   const [dashboardData, setDashboardData] = useState(null);
+  const [counters, setCounters] = useState({
+    total_products: 0,
+    total_pending_orders: 0,
+    total_users: 0,
+    total_unresolved_tickets: 0
+  });
 
   useEffect(() => {
     if (user?.role === 'admin') {
       fetchDashboardData();
+      fetchCounters();
+
+      // Set up real-time updates every 30 seconds
+      const interval = setInterval(fetchCounters, 30000);
+
+      return () => clearInterval(interval);
     }
   }, [user]);
 
   const fetchDashboardData = async () => {
     try {
-      const response = await axios.get(`${API}/admin/dashboard`);
+      const response = await axios.get(`${API}/api/admin/dashboard`);
       setDashboardData(response.data);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
+    }
+  };
+
+  const fetchCounters = async () => {
+    try {
+      const response = await axios.get(`${API}/api/admin/dashboard/counters`);
+      setCounters(response.data);
+    } catch (error) {
+      console.error('Error fetching counters:', error);
     }
   };
 
@@ -1164,7 +1244,7 @@ const AdminDashboard = () => {
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-7xl mx-auto px-4">
         <h1 className="text-4xl font-bold mb-8">Admin Dashboard</h1>
-        
+
         {dashboardData && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             <Card>
@@ -1178,7 +1258,7 @@ const AdminDashboard = () => {
                 </div>
               </CardContent>
             </Card>
-            
+
             <Card>
               <CardContent className="p-6">
                 <div className="flex items-center">
@@ -1190,7 +1270,7 @@ const AdminDashboard = () => {
                 </div>
               </CardContent>
             </Card>
-            
+
             <Card>
               <CardContent className="p-6">
                 <div className="flex items-center">
@@ -1202,7 +1282,7 @@ const AdminDashboard = () => {
                 </div>
               </CardContent>
             </Card>
-            
+
             <Card>
               <CardContent className="p-6">
                 <div className="flex items-center">
@@ -1216,13 +1296,46 @@ const AdminDashboard = () => {
             </Card>
           </div>
         )}
-        
+
         <div className="text-center">
-          <p className="text-gray-600 mb-4">Admin features coming soon...</p>
-          <div className="flex justify-center space-x-4">
-            <Button disabled>Manage Products</Button>
-            <Button disabled>View Orders</Button>
-            <Button disabled>Support Tickets</Button>
+          <h2 className="text-2xl font-semibold mb-6">Quick Actions</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <a href="/admin/products">
+              <Button className="w-full h-20 flex flex-col items-center justify-center relative">
+                <Package className="h-6 w-6 mb-2" />
+                <span className="text-sm font-medium">Manage Products</span>
+                <span className="absolute top-2 right-2 bg-blue-500 text-white text-xs px-2 py-1 rounded-full">
+                  {counters.total_products}
+                </span>
+              </Button>
+            </a>
+            <a href="/admin/orders">
+              <Button className="w-full h-20 flex flex-col items-center justify-center relative">
+                <ShoppingCart className="h-6 w-6 mb-2" />
+                <span className="text-sm font-medium">View Orders</span>
+                <span className="absolute top-2 right-2 bg-green-500 text-white text-xs px-2 py-1 rounded-full">
+                  {counters.total_pending_orders}
+                </span>
+              </Button>
+            </a>
+            <a href="/admin/users">
+              <Button className="w-full h-20 flex flex-col items-center justify-center relative">
+                <Users className="h-6 w-6 mb-2" />
+                <span className="text-sm font-medium">Manage Users</span>
+                <span className="absolute top-2 right-2 bg-purple-500 text-white text-xs px-2 py-1 rounded-full">
+                  {counters.total_users}
+                </span>
+              </Button>
+            </a>
+            <a href="/admin/support-tickets">
+              <Button className="w-full h-20 flex flex-col items-center justify-center relative">
+                <Ticket className="h-6 w-6 mb-2" />
+                <span className="text-sm font-medium">Support Tickets</span>
+                <span className="absolute top-2 right-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">
+                  {counters.total_unresolved_tickets}
+                </span>
+              </Button>
+            </a>
           </div>
         </div>
       </div>
@@ -1230,113 +1343,36 @@ const AdminDashboard = () => {
   );
 };
 
-// Profile Page
+// Profile Page Components
 const ProfilePage = () => {
-  const { user, logout } = useAuth();
-  const [orders, setOrders] = useState([]);
-
-  useEffect(() => {
-    if (user) {
-      fetchOrders();
-    }
-  }, [user]);
-
-  const fetchOrders = async () => {
-    try {
-      const response = await axios.get(`${API}/orders`);
-      setOrders(response.data);
-    } catch (error) {
-      console.error('Error fetching orders:', error);
-    }
-  };
-
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
-
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-4xl mx-auto px-4">
-        <h1 className="text-4xl font-bold mb-8">My Profile</h1>
-        
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <Card>
-            <CardHeader>
-              <CardTitle>Profile Information</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <Label>Name</Label>
-                <p className="font-medium">{user.name}</p>
-              </div>
-              <div>
-                <Label>Email</Label>
-                <p className="font-medium">{user.email}</p>
-              </div>
-              <div>
-                <Label>Role</Label>
-                <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>
-                  {user.role}
-                </Badge>
-              </div>
-              <div>
-                <Label>Member Since</Label>
-                <p className="text-sm text-gray-600">
-                  {new Date(user.created_at).toLocaleDateString()}
-                </p>
-              </div>
-              <Button onClick={logout} variant="outline" className="w-full">
-                <LogOut className="h-4 w-4 mr-2" />
-                Logout
-              </Button>
-            </CardContent>
-          </Card>
-          
-          <div className="lg:col-span-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Order History</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {orders.length > 0 ? (
-                  <div className="space-y-4">
-                    {orders.map(order => (
-                      <div key={order.id} className="border rounded-lg p-4">
-                        <div className="flex justify-between items-start mb-2">
-                          <div>
-                            <p className="font-medium">Order #{order.id.slice(-8)}</p>
-                            <p className="text-sm text-gray-600">
-                              {new Date(order.created_at).toLocaleDateString()}
-                            </p>
-                          </div>
-                          <Badge variant={order.payment_status === 'completed' ? 'default' : 'secondary'}>
-                            {order.payment_status}
-                          </Badge>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm">
-                            {order.products.length} item{order.products.length !== 1 ? 's' : ''}
-                          </span>
-                          <span className="font-semibold">${order.total_amount}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <ShoppingCart className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                    <p className="text-gray-600">No orders yet</p>
-                    <a href="/products">
-                      <Button className="mt-4">Start Shopping</Button>
-                    </a>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </div>
-    </div>
+    <ProfileLayout>
+      <ProfileInfo />
+    </ProfileLayout>
+  );
+};
+
+const ProfileTicketsPage = () => {
+  return (
+    <ProfileLayout>
+      <MyTicketsPage />
+    </ProfileLayout>
+  );
+};
+
+const ProfileSettingsPage = () => {
+  return (
+    <ProfileLayout>
+      <SettingsPage />
+    </ProfileLayout>
+  );
+};
+
+const ProfileOrdersPage = () => {
+  return (
+    <ProfileLayout>
+      <OrderHistoryPage />
+    </ProfileLayout>
   );
 };
 
@@ -1362,12 +1398,13 @@ const ProtectedRoute = ({ children, adminOnly = false }) => {
 // Main App Component
 function App() {
   return (
-    <AuthProvider>
-      <CartProvider>
-        <Router>
-          <div className="App">
-            <Navigation />
-            <Routes>
+    <ErrorBoundary>
+      <AuthProvider>
+        <CartProvider>
+          <Router>
+            <div className="App">
+              <Navigation />
+              <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/products" element={<ProductsPage />} />
               <Route path="/cart" element={<CartPage />} />
@@ -1375,15 +1412,57 @@ function App() {
               <Route path="/register" element={<RegisterPage />} />
               <Route path="/help" element={<HelpPage />} />
               <Route path="/contact" element={<ContactPage />} />
+              {/* Removed CheckoutPage route because component is missing */}
               <Route path="/checkout/success" element={<CheckoutSuccessPage />} />
-              <Route path="/profile" element={
+              <Route path="/checkout" element={<CheckoutPage />} />
+            <Route path="/order-success/:orderId" element={
+                <ProtectedRoute>
+                  <OrderSuccessPage />
+                </ProtectedRoute>
+              } />
+            <Route path="/profile" element={
                 <ProtectedRoute>
                   <ProfilePage />
+                </ProtectedRoute>
+              } />
+            <Route path="/profile/tickets" element={
+                <ProtectedRoute>
+                  <ProfileTicketsPage />
+                </ProtectedRoute>
+              } />
+            <Route path="/profile/settings" element={
+                <ProtectedRoute>
+                  <ProfileSettingsPage />
+                </ProtectedRoute>
+              } />
+            <Route path="/profile/orders" element={
+                <ProtectedRoute>
+                  <ProfileOrdersPage />
                 </ProtectedRoute>
               } />
               <Route path="/admin" element={
                 <ProtectedRoute adminOnly>
                   <AdminDashboard />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/products" element={
+                <ProtectedRoute adminOnly>
+                  <ProductManagement />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/users" element={
+                <ProtectedRoute adminOnly>
+                  <UserManagement />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/orders" element={
+                <ProtectedRoute adminOnly>
+                  <OrderManagement />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/support-tickets" element={
+                <ProtectedRoute adminOnly>
+                  <SupportTicketManagement />
                 </ProtectedRoute>
               } />
             </Routes>
@@ -1392,6 +1471,7 @@ function App() {
         </Router>
       </CartProvider>
     </AuthProvider>
+    </ErrorBoundary>
   );
 }
 
