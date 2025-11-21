@@ -17,7 +17,4 @@ python-multipart==0.0.20
 
 email-validator==2.3.0
 
-fastapi-mail==1.4.1   # <-- required for FastMail
-
-# Optional but recommended for BSON ObjectId handling
-bson==0.5.10
+fastapi-mail==1.4.1
