@@ -13,7 +13,7 @@ import uuid
 import re
 from datetime import datetime, timezone, timedelta
 import bcrypt
-import jwt
+from jose import jwt
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
 from pydantic import BaseModel as PydanticBaseModel
 from bson import ObjectId
