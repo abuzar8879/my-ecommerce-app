@@ -18,8 +18,29 @@ from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
 from pydantic import BaseModel as PydanticBaseModel
 from bson import ObjectId
 
+import cloudinary
+import cloudinary.uploader
+import io
+
 ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+
+
+# Cloudinary config from environment (optional - if not set we fall back to local storage)
+CLOUDINARY_CLOUD_NAME = os.environ.get("CLOUDINARY_CLOUD_NAME")
+CLOUDINARY_API_KEY = os.environ.get("CLOUDINARY_API_KEY")
+CLOUDINARY_API_SECRET = os.environ.get("CLOUDINARY_API_SECRET")
+CLOUDINARY_FOLDER = os.environ.get("CLOUDINARY_FOLDER", "ecom/uploads")
+
+if CLOUDINARY_CLOUD_NAME and CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET:
+    cloudinary.config(
+        cloud_name=CLOUDINARY_CLOUD_NAME,
+        api_key=CLOUDINARY_API_KEY,
+        api_secret=CLOUDINARY_API_SECRET,
+        secure=True
+    )
+else:
+    # Log a warning so it's obvious in the server log that Cloudinary isn't configured
+    logging.info("Cloudinary credentials not found in environment — image uploads will be saved locally.")
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -913,6 +934,10 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 @app.post("/api/admin/upload-images")
 async def upload_images(files: List[UploadFile] = File(...), admin_user: User = Depends(get_admin_user)):
+    """
+    Upload images. If Cloudinary credentials are configured, upload to Cloudinary.
+    Otherwise save to local uploads/ directory and return local URLs.
+    """
     upload_dir = Path("uploads")
     upload_dir.mkdir(exist_ok=True)
     uploaded_urls = []
@@ -921,18 +946,56 @@ async def upload_images(files: List[UploadFile] = File(...), admin_user: User = 
         file_ext = file.filename.split(".")[-1]
         if file_ext.lower() not in ["jpg", "jpeg", "png", "gif", "webp"]:
             raise HTTPException(status_code=400, detail="Invalid image format")
-        unique_filename = f"{uuid.uuid4()}.{file_ext}"
-        file_path = upload_dir / unique_filename
 
-        with open(file_path, "wb") as buffer:
-            content = await file.read()
-            buffer.write(content)
+        # If Cloudinary is configured, upload there
+        if CLOUDINARY_CLOUD_NAME and CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET:
+            try:
+                content = await file.read()
+                file_stream = io.BytesIO(content)
+                # Use use_filename=True + unique_filename=True to keep filenames meaningful but unique
+                res = cloudinary.uploader.upload(
+                    file_stream,
+                    folder=CLOUDINARY_FOLDER,
+                    resource_type="image",
+                    use_filename=True,
+                    unique_filename=True,
+                )
+                # prefer secure_url if available
+                public_url = res.get("secure_url") or res.get("url")
+                uploaded_urls.append(public_url)
+            except Exception as e:
+                logging.error(f"Cloudinary upload failed for {file.filename}: {e}")
+                raise HTTPException(status_code=500, detail=f"Failed to upload {file.filename}")
+            finally:
+                # ensure UploadFile buffer closed
+                try:
+                    await file.close()
+                except Exception:
+                    pass
 
-        # Generate full URL for the uploaded image
-        public_url = f"http://localhost:8000/uploads/{unique_filename}"
-        uploaded_urls.append(public_url)
+        else:
+            # Fallback: save to local uploads directory
+            unique_filename = f"{uuid.uuid4()}.{file_ext}"
+            file_path = upload_dir / unique_filename
+            try:
+                with open(file_path, "wb") as buffer:
+                    content = await file.read()
+                    buffer.write(content)
+                # construct public URL using your server root; in production set proper base URL
+                # When deploying on Render/Vercel you should use your deployed domain here.
+                public_url = f"{os.environ.get('BACKEND_PUBLIC_URL', 'http://localhost:8000')}/uploads/{unique_filename}"
+                uploaded_urls.append(public_url)
+            except Exception as e:
+                logging.error(f"Local file save failed for {file.filename}: {e}")
+                raise HTTPException(status_code=500, detail=f"Failed to save {file.filename}")
+            finally:
+                try:
+                    await file.close()
+                except Exception:
+                    pass
 
     return {"urls": uploaded_urls}
+
 
 # Test email endpoint
 @api_router.post("/test-email")
