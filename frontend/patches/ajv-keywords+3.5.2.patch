@@ -1,0 +1,9 @@
+diff --git a/node_modules/ajv-keywords/dist/definitions/typeof.js b/node_modules/ajv-keywords/dist/definitions/typeof.js
+index 10f8dcd..e3b4a2b 100644
+--- a/node_modules/ajv-keywords/dist/definitions/typeof.js
++++ b/node_modules/ajv-keywords/dist/definitions/typeof.js
+@@ -1,6 +1,6 @@
+ "use strict";
+ Object.defineProperty(exports, "__esModule", { value: true });
+ var codegen_1 = require("ajv/dist/compile/codegen");
++var codegen_1 = require("ajv/dist/compile");
