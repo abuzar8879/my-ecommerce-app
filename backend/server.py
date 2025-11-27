@@ -86,20 +86,21 @@ app = FastAPI(title="E-Commerce API", version="1.0.0")
 api_router = APIRouter(prefix="/api")
 
 # CORS Middleware
-cors_origins = os.environ.get('CORS_ORIGINS', 'http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001')
-if cors_origins == '*' or not cors_origins:
-    # Allow all origins in development
-    cors_origins_list = ["*"]
-else:
-    cors_origins_list = [origin.strip() for origin in cors_origins.split(',') if origin.strip()]
+from fastapi.middleware.cors import CORSMiddleware
+
+origins = [
+    "https://my-ecommerce-app-mocha.vercel.app",  # your frontend Vercel domain
+                          # local dev
+]
 
 app.add_middleware(
     CORSMiddleware,
+    allow_origins=origins,
     allow_credentials=True,
-    allow_origins=cors_origins_list,
     allow_methods=["*"],
-    allow_headers=["*", "Authorization"],
+    allow_headers=["*"],
 )
+
 
 # ==================== MODELS ====================
 
