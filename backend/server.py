@@ -93,17 +93,19 @@ api_router = APIRouter(prefix="/api")
 # CORS Middleware
 from fastapi.middleware.cors import CORSMiddleware
 
+origins = [
+    "https://my-ecommerce-ph4f04ead-abuzar-khans-projects-e87a6346.vercel.app",
+    "http://localhost:3000"
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-    "https://my-ecommerce-app-mocha.vercel.app",
-    "http://localhost:3000",
-    "https://my-ecommerce-app-om3rzjgjy-abuzar-khans-projects-e87a6346.vercel.app"
-],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 
 # ==================== MODELS ====================
