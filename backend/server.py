@@ -95,8 +95,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 origins = [
     "https://my-ecommerce-ph4f04ead-abuzar-khans-projects-e87a6346.vercel.app",
+    "https://my-ecommerce-app-mocha.vercel.app",
+    "https://*.vercel.app",
     "http://localhost:3000"
 ]
+
 
 app.add_middleware(
     CORSMiddleware,
