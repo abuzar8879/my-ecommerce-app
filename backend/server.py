@@ -2,7 +2,7 @@ from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request,
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from dotenv import load_dotenv
+
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
@@ -21,6 +21,11 @@ from bson import ObjectId
 import cloudinary
 import cloudinary.uploader
 import io
+
+
+from dotenv import load_dotenv
+load_dotenv()
+
 
 ROOT_DIR = Path(__file__).parent
 
@@ -88,17 +93,18 @@ api_router = APIRouter(prefix="/api")
 # CORS Middleware
 from fastapi.middleware.cors import CORSMiddleware
 
-origins = [
-    "https://my-ecommerce-app-mocha.vercel.app",
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=[
+    "https://my-ecommerce-app-mocha.vercel.app",
+    "http://localhost:3000",
+    "https://my-ecommerce-app-om3rzjgjy-abuzar-khans-projects-e87a6346.vercel.app"
+],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # ==================== MODELS ====================
 
