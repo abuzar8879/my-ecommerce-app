@@ -22,8 +22,12 @@ import { ShoppingCart, User, Star, Package, Users, BarChart3, Ticket, Plus, Minu
 
 
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}`;
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL?.replace(/\/$/, "");
+const API = BACKEND_URL;
+
+
+
+
 
 // Profile form validation schema (moved to ProfileInfo component)
 
