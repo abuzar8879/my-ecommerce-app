@@ -89,8 +89,7 @@ api_router = APIRouter(prefix="/api")
 from fastapi.middleware.cors import CORSMiddleware
 
 origins = [
-    "https://my-ecommerce-app-mocha.vercel.app",  # your frontend Vercel domain
-                          # local dev
+    "https://my-ecommerce-app-mocha.vercel.app",
 ]
 
 app.add_middleware(
@@ -100,7 +99,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 # ==================== MODELS ====================
 
