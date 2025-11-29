@@ -43,15 +43,10 @@ const ProfileLayout = ({ children }) => {
   const showSidebar = user?.role !== 'admin';
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
-      {/* Sidebar - only show for non-admin users */}
-      {showSidebar && (
-        <div className="w-64 bg-white shadow-lg fixed left-0 top-0 h-full z-40">
-          <div className="p-6 border-b">
-            <h2 className="text-xl font-bold text-gray-900">Profile</h2>
-          </div>
-
-          <nav className="p-4 space-y-2">
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+        <div className="flex flex-col md:flex-row gap-6">
+          <nav className="flex md:flex-col items-center md:items-stretch gap-2 overflow-x-auto md:overflow-visible pb-2 md:pb-0">
             {menuItems.map((item) => {
               const Icon = item.icon;
               return (
@@ -81,13 +76,9 @@ const ProfileLayout = ({ children }) => {
               </Button>
             </div>
           </nav>
-        </div>
-      )}
-
-      {/* Main Content */}
-      <div className={`flex-1 ${showSidebar ? 'ml-64' : ''}`}>
-        <div className="p-8">
-          {children}
+          <div className="flex-1">
+            {children}
+          </div>
         </div>
       </div>
     </div>

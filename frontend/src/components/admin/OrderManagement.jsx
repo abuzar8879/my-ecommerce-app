@@ -1,3 +1,4 @@
+// Function component: OrderManagement
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Button } from '../ui/button';
@@ -8,6 +9,7 @@ import { ArrowLeft } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
+// Function component: OrderManagement
 const OrderManagement = () => {
   const [orders, setOrders] = useState([]);
 
@@ -38,22 +40,22 @@ const OrderManagement = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-6xl mx-auto px-4">
-        <div className="flex items-center space-x-4 mb-6">
+    <div className="min-h-screen bg-gray-50 py-6 sm:py-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6">
+        <div className="flex items-center flex-wrap gap-3 mb-6">
           <a href="/admin">
             <Button className="flex items-center space-x-2 bg-black text-white hover:bg-gray-800">
               <ArrowLeft className="h-4 w-4" />
               <span>Back</span>
             </Button>
           </a>
-          <h1 className="text-3xl font-bold">Manage Orders</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold">Manage Orders</h1>
         </div>
         <div className="space-y-4">
           {orders.map(order => (
             <Card key={order.id || order._id}>
               <CardHeader>
-                <CardTitle>Order #{order.id ? order.id.slice(-8) : 'N/A'}</CardTitle>
+                <CardTitle className="text-lg sm:text-xl">Order #{order.id ? order.id.slice(-8) : 'N/A'}</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -61,6 +63,7 @@ const OrderManagement = () => {
                     <p><strong>User ID:</strong> {order.user_id ? order.user_id.slice(-8) : 'N/A'}</p>
                     <p><strong>Total Amount:</strong> ${order.total_amount ? order.total_amount.toFixed(2) : '0.00'}</p>
                     <p><strong>Status:</strong> {order.status || 'N/A'}</p>
+                    <p><strong>Payment Method:</strong> COD</p>
                     <p><strong>Created:</strong> {order.created_at ? new Date(order.created_at).toLocaleDateString() : 'N/A'}</p>
                     {order.order_id && (
                       <p><strong>Order ID:</strong> {order.order_id}</p>
@@ -72,7 +75,7 @@ const OrderManagement = () => {
                       value={order.status || 'pending'}
                       onValueChange={(value) => handleStatusChange(order.id, value)}
                     >
-                      <SelectTrigger className="w-48">
+                      <SelectTrigger className="w-full sm:w-48">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -80,6 +83,7 @@ const OrderManagement = () => {
                         <SelectItem value="confirmed">Confirmed</SelectItem>
                         <SelectItem value="shipped">Shipped</SelectItem>
                         <SelectItem value="delivered">Delivered</SelectItem>
+                        <SelectItem value="cancelled">Cancelled</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -132,6 +136,5 @@ const OrderManagement = () => {
       </div>
     </div>
   );
-};
-
+}
 export default OrderManagement;

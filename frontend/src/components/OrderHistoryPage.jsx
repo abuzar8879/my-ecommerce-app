@@ -1,3 +1,5 @@
+// Function component: OrderHistoryPage
+// Top-level imports in OrderHistoryPage.jsx
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
@@ -6,14 +8,20 @@ import { Button } from './ui/button';
 import { Package, Clock, CheckCircle, XCircle, Truck, Eye } from 'lucide-react';
 import { useAuth } from '../App';
 import { toast } from 'sonner';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}`;
 
+// Function component: OrderHistoryPage
 const OrderHistoryPage = () => {
   const { user } = useAuth();
   const [orders, setOrders] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Moved: dialog state must be before any conditional return
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState(null);
 
   useEffect(() => {
     fetchOrderHistory();
@@ -28,6 +36,18 @@ const OrderHistoryPage = () => {
       toast.error('Failed to load order history');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Added: cancelOrder handler used by the "Cancel Order" button
+  const cancelOrder = async (orderId) => {
+    try {
+      await axios.post(`${API}/api/orders/${orderId}/cancel`);
+      toast.success('Order cancelled');
+      fetchOrderHistory(); // refresh
+    } catch (error) {
+      console.error('Error cancelling order:', error);
+      toast.error(error.response?.data?.error || 'Failed to cancel order');
     }
   };
 
@@ -85,15 +105,15 @@ const OrderHistoryPage = () => {
 
   if (isLoading) {
     return (
-      <div className="max-w-4xl mx-auto">
-        <h1 className="text-4xl font-bold mb-8">Order History</h1>
+      <div className="max-w-4xl mx-auto px-4 sm:px-6">
+        <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-8">Order History</h1>
         <div className="space-y-4">
           {[...Array(3)].map((_, i) => (
             <Card key={i} className="animate-pulse">
-              <CardContent className="p-6">
-                <div className="h-4 bg-gray-200 rounded w-1/4 mb-4"></div>
-                <div className="h-3 bg-gray-200 rounded w-1/2 mb-2"></div>
-                <div className="h-3 bg-gray-200 rounded w-1/3"></div>
+              <CardContent className="p-4 sm:p-6">
+                <div className="h-4 bg-gray-200 rounded w-1/3 sm:w-1/4 mb-4"></div>
+                <div className="h-3 bg-gray-200 rounded w-2/3 sm:w-1/2 mb-2"></div>
+                <div className="h-3 bg-gray-200 rounded w-1/2 sm:w-1/3"></div>
               </CardContent>
             </Card>
           ))}
@@ -102,13 +122,23 @@ const OrderHistoryPage = () => {
     );
   }
 
+  const openDetails = (order) => {
+    setSelectedOrder(order);
+    setIsDetailsOpen(true);
+  };
+
+  const closeDetails = () => {
+    setIsDetailsOpen(false);
+    setSelectedOrder(null);
+  };
+
   return (
-    <div className="max-w-4xl mx-auto">
-      <h1 className="text-4xl font-bold mb-8">Order History</h1>
+    <div className="max-w-4xl mx-auto px-4 sm:px-6">
+      <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-8">Order History</h1>
 
       {orders.length === 0 ? (
         <Card>
-          <CardContent className="p-12 text-center">
+          <CardContent className="p-8 sm:p-12 text-center">
             <Package className="h-16 w-16 text-gray-400 mx-auto mb-4" />
             <h3 className="text-xl font-semibold text-gray-900 mb-2">No orders yet</h3>
             <p className="text-gray-600 mb-6">You haven't placed any orders yet. Start shopping to see your order history here.</p>
@@ -122,19 +152,19 @@ const OrderHistoryPage = () => {
           {orders.map((order) => (
             <Card key={order.id} className="hover:shadow-lg transition-shadow">
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <CardTitle className="text-lg">Order #{order.id.slice(-8)}</CardTitle>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="flex items-center flex-wrap gap-2">
+                    <CardTitle className="text-base sm:text-lg">Order #{order.id.slice(-8)}</CardTitle>
                     <Badge className={getStatusColor(order.status)}>
                       <span className="flex items-center space-x-1">
                         {getStatusIcon(order.status)}
-                        <span>{order.status}</span>
+                        <span className="capitalize">{order.status}</span>
                       </span>
                     </Badge>
                   </div>
-                  <div className="text-right">
-                    <p className="text-2xl font-bold text-gray-900">{formatCurrency(order.total_amount)}</p>
-                    <p className="text-sm text-gray-600">{formatDate(order.created_at)}</p>
+                  <div className="text-left sm:text-right">
+                    <p className="text-xl sm:text-2xl font-bold text-gray-900">{formatCurrency(order.total_amount)}</p>
+                    <p className="text-xs sm:text-sm text-gray-600">{formatDate(order.created_at)}</p>
                   </div>
                 </div>
               </CardHeader>
@@ -182,7 +212,7 @@ const OrderHistoryPage = () => {
                     </div>
                     <div>
                       <h4 className="font-semibold mb-2">Payment Method</h4>
-                      <p className="text-sm text-gray-600">{order.payment_method || 'Not specified'}</p>
+                      <p className="text-sm text-gray-600">COD</p>
                       {order.payment_status && (
                         <Badge variant={order.payment_status === 'paid' ? 'default' : 'secondary'} className="mt-1">
                           {order.payment_status}
@@ -192,14 +222,25 @@ const OrderHistoryPage = () => {
                   </div>
 
                   {/* Order Actions */}
-                  <div className="flex justify-end space-x-2 pt-4 border-t border-gray-200">
-                    <Button variant="outline" size="sm">
+                  <div className="flex flex-col sm:flex-row sm:justify-end gap-2 pt-4 border-t border-gray-200">
+                    <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={() => openDetails(order)}>
                       <Eye className="h-4 w-4 mr-2" />
                       View Details
                     </Button>
-                    {order.status.toLowerCase() === 'delivered' && (
-                      <Button variant="outline" size="sm">
+                    {order.status?.toLowerCase() === 'delivered' && (
+                      <Button variant="outline" size="sm" className="w-full sm:w-auto">
                         Return/Refund
+                      </Button>
+                    )}
+                    {(order.status?.toLowerCase() === 'pending' || order.status?.toLowerCase() === 'confirmed') && (
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="w-full sm:w-auto"
+                        onClick={() => cancelOrder(order.id)}
+                      >
+                        <XCircle className="h-4 w-4 mr-2" />
+                        Cancel Order
                       </Button>
                     )}
                   </div>
@@ -209,8 +250,88 @@ const OrderHistoryPage = () => {
           ))}
         </div>
       )}
+
+      {/* Order Details Modal */}
+      <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
+        <DialogContent className="w-[95vw] sm:max-w-2xl sm:w-full p-4 sm:p-6">
+          <DialogHeader>
+            <DialogTitle>Order Details</DialogTitle>
+            <DialogDescription>
+              {selectedOrder ? `Order #${selectedOrder.id?.slice(-8)} • ${new Date(selectedOrder.created_at).toLocaleString()}` : ''}
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedOrder && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <Badge className="text-xs">{selectedOrder.status}</Badge>
+                </div>
+                <div className="text-right">
+                  <p className="text-xl font-bold text-gray-900">
+                    {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(selectedOrder.total_amount)}
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-semibold mb-3">Items</h4>
+                <div className="space-y-2">
+                  {selectedOrder.products?.map((item, index) => (
+                    <div key={index} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-b-0">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-12 h-12 bg-gray-100 rounded-lg overflow-hidden">
+                          <div className="w-full h-full flex items-center justify-center">
+                            <Package className="h-6 w-6 text-gray-400" />
+                          </div>
+                        </div>
+                        <div>
+                          <p className="font-medium">{item.name || 'Product'}</p>
+                          <p className="text-sm text-gray-600">Qty: {item.quantity}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold">
+                          {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(item.total ?? (item.price * item.quantity))}
+                        </p>
+                        <p className="text-sm text-gray-600">
+                          {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(item.price)} each
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <h4 className="font-semibold mb-2">Shipping Address</h4>
+                  {selectedOrder.delivery_address ? (
+                    <div className="text-sm text-gray-600">
+                      <p>{selectedOrder.delivery_address.street}</p>
+                      <p>{selectedOrder.delivery_address.city}, {selectedOrder.delivery_address.state} {selectedOrder.delivery_address.postal_code}</p>
+                      <p>{selectedOrder.delivery_address.country}</p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-600">No address provided</p>
+                  )}
+                </div>
+                <div>
+                  <h4 className="font-semibold mb-2">Payment Method</h4>
+                  <p className="text-sm text-gray-600">COD</p>
+                  {selectedOrder.payment_status && (
+                    <Badge variant={selectedOrder.payment_status === 'paid' ? 'default' : 'secondary'} className="mt-1">
+                      {selectedOrder.payment_status}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
-};
+}
 
 export default OrderHistoryPage;

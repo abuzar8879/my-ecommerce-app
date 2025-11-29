@@ -24,7 +24,7 @@ import io
 
 
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).parent / ".env")
 
 
 ROOT_DIR = Path(__file__).parent
@@ -100,7 +100,7 @@ origins = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex="https://.*\.vercel\.app",
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -637,7 +637,7 @@ async def delete_product(product_id: str, admin_user: User = Depends(get_admin_u
 
 
 
-# ORDER ROUTES
+# ORDER ROUTES for cancelled order
 @api_router.get("/orders", response_model=List[Order])
 async def get_user_orders(current_user: User = Depends(get_current_user)):
     orders = await db.orders.find({"user_id": current_user.id}).sort("created_at", -1).to_list(50)
@@ -704,7 +704,7 @@ async def create_order(order_data: OrderCreate, current_user: User = Depends(get
 
 @api_router.put("/admin/orders/{order_id}")
 async def update_order_status(order_id: str, status: str = Query(...), admin_user: User = Depends(get_admin_user)):
-    valid_statuses = ["pending", "confirmed", "shipped", "delivered"]
+    valid_statuses = ["pending", "confirmed", "shipped", "delivered", "cancelled"]
     if status not in valid_statuses:
         raise HTTPException(status_code=400, detail="Invalid status")
 
@@ -726,6 +726,58 @@ async def update_order_status(order_id: str, status: str = Query(...), admin_use
         logging.error(f"Order {order_id} not found. Available orders: {[order.get('id', order.get('_id')) for order in all_orders]}")
         raise HTTPException(status_code=404, detail="Order not found")
     return {"message": "Order status updated successfully"}
+
+@api_router.post("/orders/{order_id}/cancel")
+async def cancel_order(order_id: str, current_user: User = Depends(get_current_user)):
+    """
+    Allow a user to cancel their own order if it is in 'pending' or 'confirmed' status.
+    """
+    try:
+        # First try to find by UUID-based 'id'
+        order = await db.orders.find_one({"user_id": current_user.id, "id": order_id})
+
+        # If not found and order_id could be a Mongo ObjectId, try that
+        if not order:
+            try:
+                oid = ObjectId(order_id)
+                order = await db.orders.find_one({"user_id": current_user.id, "_id": oid})
+            except Exception:
+                oid = None  # Not a valid ObjectId; ignore and continue
+
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+
+        status = (order.get("status") or "pending").lower()
+        if status not in ["pending", "confirmed"]:
+            raise HTTPException(status_code=400, detail="Order cannot be cancelled in its current status")
+
+        # Try update by UUID 'id' first
+        result = await db.orders.update_one(
+            {"user_id": current_user.id, "id": order_id},
+            {"$set": {"status": "cancelled"}}
+        )
+
+        # If no match, try update by ObjectId if valid
+        if result.matched_count == 0:
+            try:
+                oid = ObjectId(order_id)
+                result = await db.orders.update_one(
+                    {"user_id": current_user.id, "_id": oid},
+                    {"$set": {"status": "cancelled"}}
+                )
+            except Exception:
+                pass
+
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Order not found")
+
+        return {"message": "Order cancelled successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Cancel order error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to cancel order")
 
 # SUPPORT ROUTES
 @api_router.post("/support/tickets", response_model=SupportTicket)

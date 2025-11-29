@@ -123,75 +123,84 @@ const ProductManagement = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-7xl mx-auto px-4">
-        <div className="flex justify-between items-center mb-6">
-          <div className="flex items-center space-x-4">
-            <a href="/admin">
-              <Button className="flex items-center space-x-2 bg-black text-white hover:bg-gray-800">
-                <ArrowLeft className="h-4 w-4" />
-                <span>Back</span>
-              </Button>
-            </a>
-            <h1 className="text-3xl font-bold">Manage Products</h1>
-          </div>
-          {!isEditing && (
-            <Button onClick={handleAddProduct}>Add New Product</Button>
-          )}
+    <div className="min-h-screen bg-gray-50 py-6 sm:py-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6">
+        {/* Top bar */}
+        <div className="flex items-center flex-wrap gap-3 mb-6">
+          <a href="/admin">
+            <Button className="flex items-center space-x-2 bg-black text-white hover:bg-gray-800">
+              <ArrowLeft className="h-4 w-4" />
+              <span>Back</span>
+            </Button>
+          </a>
+          <h1 className="text-2xl sm:text-3xl font-bold">Manage Products</h1>
         </div>
 
-        {isEditing ? (
-          <form onSubmit={handleSubmit} className="space-y-4 max-w-xl">
-            <div>
-              <Label htmlFor="name">Name</Label>
-              <Input id="name" name="name" value={form.name} onChange={handleInputChange} required />
-            </div>
-            <div>
-              <Label htmlFor="description">Description</Label>
-              <textarea
-                id="description"
-                name="description"
-                value={form.description}
-                onChange={handleInputChange}
-                className="w-full p-2 border rounded"
-                required
-              />
-            </div>
-            <div>
-              <Label htmlFor="price">Price</Label>
-              <Input id="price" name="price" type="number" step="0.01" value={form.price} onChange={handleInputChange} required />
-            </div>
-            <div>
-              <Label htmlFor="category">Category</Label>
-              <Input id="category" name="category" value={form.category} onChange={handleInputChange} required />
-            </div>
-            <div>
-              <Label htmlFor="stock">Stock</Label>
-              <Input id="stock" name="stock" type="number" value={form.stock} onChange={handleInputChange} required />
-            </div>
-            <div>
-              <Label htmlFor="images">Product Images</Label>
-              <Input
-                id="images"
-                type="file"
-                multiple
-                accept="image/*"
-                onChange={handleFileChange}
-              />
-              {previewUrls.length > 0 && (
-                <div className="mt-4 grid grid-cols-3 gap-2">
-                  {previewUrls.map((url, index) => (
-                    <img key={index} src={url} alt={`Preview ${index + 1}`} className="w-full h-20 object-cover rounded" />
-                  ))}
-                </div>
+        {/* Form and product list sections */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Left: form or add button */}
+          <Card>
+            <CardContent className="p-4 sm:p-6">
+              {!isEditing && (
+                <Button onClick={handleAddProduct}>Add New Product</Button>
               )}
-            </div>
-            <div className="space-x-4">
-              <Button type="submit">Save</Button>
-              <Button variant="outline" onClick={handleCancel}>Cancel</Button>
-            </div>
-          </form>
-        ) : (
+
+              {isEditing && (
+                <form onSubmit={handleSubmit} className="space-y-4 max-w-xl">
+                  <div>
+                    <Label htmlFor="name">Name</Label>
+                    <Input id="name" name="name" value={form.name} onChange={handleInputChange} required />
+                  </div>
+                  <div>
+                    <Label htmlFor="description">Description</Label>
+                    <textarea
+                      id="description"
+                      name="description"
+                      value={form.description}
+                      onChange={handleInputChange}
+                      className="w-full p-2 border rounded"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="price">Price</Label>
+                    <Input id="price" name="price" type="number" step="0.01" value={form.price} onChange={handleInputChange} required />
+                  </div>
+                  <div>
+                    <Label htmlFor="category">Category</Label>
+                    <Input id="category" name="category" value={form.category} onChange={handleInputChange} required />
+                  </div>
+                  <div>
+                    <Label htmlFor="stock">Stock</Label>
+                    <Input id="stock" name="stock" type="number" value={form.stock} onChange={handleInputChange} required />
+                  </div>
+                  <div>
+                    <Label htmlFor="images">Product Images</Label>
+                    <Input
+                      id="images"
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      onChange={handleFileChange}
+                    />
+                    {previewUrls.length > 0 && (
+                      <div className="mt-4 grid grid-cols-3 gap-2">
+                        {previewUrls.map((url, index) => (
+                          <img key={index} src={url} alt={`Preview ${index + 1}`} className="w-full h-20 object-cover rounded" />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-x-4">
+                    <Button type="submit">Save</Button>
+                    <Button variant="outline" onClick={handleCancel}>Cancel</Button>
+                  </div>
+                </form>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Right: product list */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {products.map(product => (
               <Card key={product.id}>
@@ -223,7 +232,7 @@ const ProductManagement = () => {
               </Card>
             ))}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
