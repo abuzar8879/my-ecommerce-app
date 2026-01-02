@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, EmailStr, validator
 from typing import List, Optional, Dict, Any
 import uuid
 import re
+import random
 from datetime import datetime, timezone, timedelta
 import bcrypt
 from jose import jwt
@@ -48,9 +49,10 @@ else:
     logging.info("Cloudinary credentials not found in environment — image uploads will be saved locally.")
 
 # MongoDB connection
-mongo_url = os.environ['MONGO_URL']
+mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
+db_name = os.environ.get('DB_NAME', 'ecommerce')
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db = client[db_name]
 
 # JWT Configuration
 JWT_SECRET = os.environ.get('JWT_SECRET', 'your-super-secret-key-change-in-production')
@@ -59,14 +61,23 @@ JWT_EXPIRATION_HOURS = 24 * 7  # 1 week
 
 
 
-# Email Configuration (optional) 
+# Email Configuration
 MAIL_USERNAME = os.environ.get('MAIL_USERNAME')
 MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
-MAIL_FROM = os.environ.get('MAIL_FROM', MAIL_USERNAME)
+MAIL_FROM_RAW = os.environ.get('MAIL_FROM', MAIL_USERNAME)
+# Extract email address if it contains a name (e.g., "Name <email@domain.com>")
+import re
+email_match = re.search(r'<([^>]+)>', MAIL_FROM_RAW)
+MAIL_FROM = email_match.group(1) if email_match else MAIL_FROM_RAW
+
+# Validate email domain - use Gmail if the configured one is invalid
+if '@financetracker.local' in MAIL_FROM or not MAIL_FROM or MAIL_FROM == MAIL_USERNAME:
+    MAIL_FROM = MAIL_USERNAME  # Use the Gmail address
+
 MAIL_PORT = int(os.environ.get('MAIL_PORT', 587))
 MAIL_SERVER = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
 
-# FastAPI-Mail Configuration (only if email settings are provided)
+# FastAPI-Mail Configuration
 if MAIL_USERNAME and MAIL_PASSWORD:
     mail_config = ConnectionConfig(
         MAIL_USERNAME=MAIL_USERNAME,
@@ -82,6 +93,9 @@ if MAIL_USERNAME and MAIL_PASSWORD:
     mail = FastMail(mail_config)
 else:
     mail = None
+
+# OTP Configuration
+OTP_EXPIRY_MINUTES = 10
 
 # Security
 security = HTTPBearer()
@@ -172,6 +186,9 @@ class User(UserBase):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     mobile_number: Optional[str] = None
     delivery_address: Optional[Dict[str, Any]] = None  # Make it flexible to handle different address formats
+    isVerified: bool = False
+    otp: Optional[str] = None
+    otpExpires: Optional[datetime] = None
 
 
 
@@ -183,12 +200,20 @@ class ProductBase(BaseModel):
     stock: int = 0
     images: List[str] = []
 
+    @validator('name')
+    def validate_name_length(cls, v):
+        if len(v) > 200:
+            raise ValueError('Product name must not exceed 200 characters')
+        return v
+
 class ProductCreate(ProductBase):
     pass
 
 class Product(ProductBase):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    average_rating: Optional[float] = 0.0
+    total_ratings: Optional[int] = 0
 
 class OrderItem(BaseModel):
     product_id: str
@@ -242,6 +267,18 @@ class FAQ(FAQBase):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+class RatingBase(BaseModel):
+    rating: int = Field(..., ge=1, le=5)
+
+class RatingCreate(RatingBase):
+    pass
+
+class Rating(RatingBase):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    product_id: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
 class LoginHistory(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str
@@ -253,6 +290,13 @@ class LoginHistory(BaseModel):
 class ChangePasswordRequest(BaseModel):
     old_password: str
     new_password: str
+
+class ChangePasswordOTPRequest(BaseModel):
+    old_password: str
+    new_password: str
+
+class VerifyChangePasswordOTPRequest(BaseModel):
+    otp: str
 
 class DeleteAccountRequest(BaseModel):
     password: str
@@ -272,6 +316,31 @@ def hash_password(password: str) -> str:
 
 def verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+
+# ==================== OTP UTILITIES ====================
+
+def generate_otp() -> str:
+    """Generate a 6-digit OTP"""
+    return str(random.randint(100000, 999999))
+
+async def send_email(to_email: str, subject: str, body: str):
+    """Send email using FastAPI-Mail"""
+    if not mail:
+        logging.warning("Email configuration not set - skipping email send")
+        return
+
+    message = MessageSchema(
+        subject=subject,
+        recipients=[to_email],
+        body=body,
+        subtype="html"
+    )
+
+    try:
+        await mail.send_message(message)
+    except Exception as e:
+        logging.error(f"Failed to send email: {e}")
+        raise HTTPException(status_code=500, detail="Failed to send email")
 
 def create_access_token(user_id: str, email: str, role: str) -> str:
     payload = {
@@ -317,26 +386,6 @@ async def root():
     return {"message": "E-Commerce API is running"}
 
 # AUTH ROUTES
-@api_router.post("/auth/register", response_model=dict)
-async def register(user_data: UserCreate):
-    # Check if user exists
-    existing_user = await db.users.find_one({"email": user_data.email})
-    if existing_user:
-        raise HTTPException(status_code=400, detail="Email already registered")
-
-    # Hash password and create user
-    hashed_password = hash_password(user_data.password)
-    user = User(**user_data.dict(exclude={"password"}))
-    user_dict = user.dict()
-    user_dict["password_hash"] = hashed_password
-
-    # Insert user
-    await db.users.insert_one(user_dict)
-
-    return {
-        "user": user.dict(),
-        "message": "User registered successfully."
-    }
 
 @api_router.post("/auth/login", response_model=dict)
 async def login(login_data: UserLogin, request: Request):
@@ -345,9 +394,13 @@ async def login(login_data: UserLogin, request: Request):
     if not user_doc:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
+    # Check if email is verified
+    if not user_doc.get("isVerified", False):
+        raise HTTPException(status_code=403, detail="Please verify your email using OTP before logging in")
+
     # Verify password
     if not verify_password(login_data.password, user_doc["password_hash"]):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+        raise HTTPException(status_code=401, detail="Invalid credentials") 
 
     # Filter out fields that aren't in the User model
     user_data = {k: v for k, v in user_doc.items() if k != "password_hash" and k in User.__fields__}
@@ -372,6 +425,204 @@ async def login(login_data: UserLogin, request: Request):
         "user": user.dict(),
         "message": "Login successful"
     }
+
+# OTP AUTH ROUTES
+@api_router.post("/auth/register", response_model=dict)
+async def register(user_data: UserCreate):
+    try:
+        logging.info(f"Registration attempt for email: {user_data.email}")
+
+        # Check if user exists
+        existing_user = await db.users.find_one({"email": user_data.email})
+        if existing_user:
+            logging.warning(f"User already exists: {user_data.email}")
+            raise HTTPException(status_code=400, detail="Email already registered")
+
+        # Generate OTP and set expiry
+        otp = generate_otp()
+        otp_expires = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)
+        logging.info(f"Generated OTP for {user_data.email}: {otp}")
+
+        # Hash password and create user with verification fields
+        hashed_password = hash_password(user_data.password)
+        user = User(**user_data.dict(exclude={"password"}))
+        user.isVerified = False
+        user.otp = otp
+        user.otpExpires = otp_expires
+        user_dict = user.dict()
+        user_dict["password_hash"] = hashed_password
+
+        logging.info(f"Inserting user: {user_dict}")
+
+        # Insert user
+        result = await db.users.insert_one(user_dict)
+        logging.info(f"User inserted with ID: {result.inserted_id}")
+
+        # Send OTP email
+        subject = "Email Verification OTP - Shop Mate"
+        body = f"""
+        <html>
+        <body>
+            <h2>Welcome to Shop Mate!</h2>
+            <p>Your OTP for email verification is: <strong>{otp}</strong></p>
+            <p>This OTP will expire in {OTP_EXPIRY_MINUTES} minutes.</p>
+            <p>Please verify your email to complete registration.</p>
+        </body>
+        </html>
+        """
+        await send_email(user_data.email, subject, body)
+
+        return {
+            "user": user.dict(),
+            "message": "User registered successfully. Please check your email for OTP verification."
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Registration error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
+
+class VerifyOTPRequest(BaseModel):
+    email: EmailStr
+    otp: str
+
+@api_router.post("/auth/verify-otp", response_model=dict)
+async def verify_otp(verify_data: VerifyOTPRequest):
+    # Find user
+    user_doc = await db.users.find_one({"email": verify_data.email})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Check if already verified
+    if user_doc.get("isVerified", False):
+        raise HTTPException(status_code=400, detail="Email already verified")
+
+    # Check OTP
+    if user_doc.get("otp") != verify_data.otp:
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+
+    # Check expiry - ensure both datetimes are offset-aware
+    current_time = datetime.now(timezone.utc)
+    otp_expires = user_doc["otpExpires"]
+    if isinstance(otp_expires, datetime) and otp_expires.tzinfo is None:
+        # If stored as naive datetime, assume UTC
+        otp_expires = otp_expires.replace(tzinfo=timezone.utc)
+    if current_time > otp_expires:
+        raise HTTPException(status_code=400, detail="OTP has expired")
+
+    # Update user
+    await db.users.update_one(
+        {"email": verify_data.email},
+        {"$set": {"isVerified": True}, "$unset": {"otp": "", "otpExpires": ""}}
+    )
+
+    return {"message": "Email verified successfully! You can now log in."}
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ForgotPasswordVerifyRequest(BaseModel):
+    email: EmailStr
+    otp: str
+
+class ForgotPasswordResetRequest(BaseModel):
+    email: EmailStr
+    otp: str
+    new_password: str
+
+@api_router.post("/auth/forgot-password/request", response_model=dict)
+async def forgot_password_request(request_data: ForgotPasswordRequest):
+    # Find user
+    user_doc = await db.users.find_one({"email": request_data.email})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Generate OTP
+    otp = generate_otp()
+    otp_expires = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)
+
+    # Save OTP with purpose
+    await db.users.update_one(
+        {"email": request_data.email},
+        {"$set": {"otp": otp, "otpExpires": otp_expires, "otpPurpose": "reset"}}
+    )
+
+    # Send email
+    subject = "Password Reset OTP - Shop Mate"
+    body = f"""
+    <html>
+    <body>
+        <h2>Password Reset</h2>
+        <p>Your OTP for password reset is: <strong>{otp}</strong></p>
+        <p>This OTP will expire in {OTP_EXPIRY_MINUTES} minutes.</p>
+        <p>If you didn't request this, please ignore this email.</p>
+    </body>
+    </html>
+    """
+    await send_email(request_data.email, subject, body)
+
+    return {"message": "OTP sent to your email for password reset"}
+
+@api_router.post("/auth/forgot-password/verify", response_model=dict)
+async def forgot_password_verify(verify_data: ForgotPasswordVerifyRequest):
+    # Find user
+    user_doc = await db.users.find_one({"email": verify_data.email})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Check OTP purpose
+    if user_doc.get("otpPurpose") != "reset":
+        raise HTTPException(status_code=400, detail="Invalid OTP purpose")
+
+    # Check OTP
+    if user_doc.get("otp") != verify_data.otp:
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+
+    # Check expiry - ensure both datetimes are offset-aware
+    current_time = datetime.now(timezone.utc)
+    otp_expires = user_doc["otpExpires"]
+    if isinstance(otp_expires, datetime) and otp_expires.tzinfo is None:
+        # If stored as naive datetime, assume UTC
+        otp_expires = otp_expires.replace(tzinfo=timezone.utc)
+    if current_time > otp_expires:
+        raise HTTPException(status_code=400, detail="OTP has expired")
+
+    return {"message": "OTP verified successfully"}
+
+@api_router.post("/auth/forgot-password/reset", response_model=dict)
+async def forgot_password_reset(reset_data: ForgotPasswordResetRequest):
+    # Find user
+    user_doc = await db.users.find_one({"email": reset_data.email})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Check OTP purpose
+    if user_doc.get("otpPurpose") != "reset":
+        raise HTTPException(status_code=400, detail="Invalid OTP purpose")
+
+    # Check OTP
+    if user_doc.get("otp") != reset_data.otp:
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+
+    # Check expiry - ensure both datetimes are offset-aware
+    current_time = datetime.now(timezone.utc)
+    otp_expires = user_doc["otpExpires"]
+    if isinstance(otp_expires, datetime) and otp_expires.tzinfo is None:
+        # If stored as naive datetime, assume UTC
+        otp_expires = otp_expires.replace(tzinfo=timezone.utc)
+    if current_time > otp_expires:
+        raise HTTPException(status_code=400, detail="OTP has expired")
+
+    # Hash new password
+    hashed_password = hash_password(reset_data.new_password)
+
+    # Update password and clear OTP
+    await db.users.update_one(
+        {"email": reset_data.email},
+        {"$set": {"password_hash": hashed_password}, "$unset": {"otp": "", "otpExpires": "", "otpPurpose": ""}}
+    )
+
+    return {"message": "Password reset successfully"}
 
 @api_router.get("/auth/verify")
 async def verify_email(token: str):
@@ -490,6 +741,111 @@ async def change_password(
         logging.error(f"Password change error: {e}")
         raise HTTPException(status_code=500, detail="Failed to change password")
 
+@api_router.post("/users/change-password/request-otp")
+async def request_change_password_otp(
+    password_data: ChangePasswordOTPRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Request OTP for password change"""
+    try:
+        # Get user document
+        user_doc = await db.users.find_one({"id": current_user.id})
+        if not user_doc:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Verify old password
+        if not verify_password(password_data.old_password, user_doc["password_hash"]):
+            raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+        # Generate OTP and set expiry
+        otp = generate_otp()
+        otp_expires = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)
+
+        # Store OTP and new password temporarily
+        await db.users.update_one(
+            {"id": current_user.id},
+            {
+                "$set": {
+                    "otp": otp,
+                    "otpExpires": otp_expires,
+                    "otpPurpose": "change_password",
+                    "pendingNewPassword": hash_password(password_data.new_password)
+                }
+            }
+        )
+
+        # Send OTP email
+        subject = "Password Change OTP - Shop Mate"
+        body = f"""
+        <html>
+        <body>
+            <h2>Password Change Verification</h2>
+            <p>Your OTP for password change is: <strong>{otp}</strong></p>
+            <p>This OTP will expire in {OTP_EXPIRY_MINUTES} minutes.</p>
+            <p>If you didn't request this change, please ignore this email.</p>
+        </body>
+        </html>
+        """
+        await send_email(current_user.email, subject, body)
+
+        return {"message": "OTP sent to your email for password change verification"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Password change OTP request error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to send OTP")
+
+@api_router.post("/users/change-password/verify-otp")
+async def verify_change_password_otp(
+    otp_data: VerifyChangePasswordOTPRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Verify OTP and change password"""
+    try:
+        # Get user document
+        user_doc = await db.users.find_one({"id": current_user.id})
+        if not user_doc:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Check OTP purpose
+        if user_doc.get("otpPurpose") != "change_password":
+            raise HTTPException(status_code=400, detail="Invalid OTP purpose")
+
+        # Check OTP
+        if user_doc.get("otp") != otp_data.otp:
+            raise HTTPException(status_code=400, detail="Invalid OTP")
+
+        # Check expiry
+        current_time = datetime.now(timezone.utc)
+        otp_expires = user_doc["otpExpires"]
+        if isinstance(otp_expires, datetime) and otp_expires.tzinfo is None:
+            otp_expires = otp_expires.replace(tzinfo=timezone.utc)
+        if current_time > otp_expires:
+            raise HTTPException(status_code=400, detail="OTP has expired")
+
+        # Get the pending new password
+        new_password_hash = user_doc.get("pendingNewPassword")
+        if not new_password_hash:
+            raise HTTPException(status_code=400, detail="No pending password change found")
+
+        # Update password and clear OTP data
+        await db.users.update_one(
+            {"id": current_user.id},
+            {
+                "$set": {"password_hash": new_password_hash},
+                "$unset": {"otp": "", "otpExpires": "", "otpPurpose": "", "pendingNewPassword": ""}
+            }
+        )
+
+        return {"message": "Password changed successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Password change OTP verification error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to change password")
+
 @api_router.delete("/users/delete-address")
 async def delete_address(current_user: User = Depends(get_current_user)):
     """Delete user's delivery address"""
@@ -602,9 +958,36 @@ async def get_products(category: Optional[str] = None, search: Optional[str] = N
             {"name": {"$regex": search, "$options": "i"}},
             {"description": {"$regex": search, "$options": "i"}}
         ]
-    
+
     products = await db.products.find(query).to_list(100)
-    return [Product(**product) for product in products]
+    valid_products = []
+
+    for product in products:
+        try:
+            # Calculate average rating and total ratings for each product
+            ratings_pipeline = [
+                {"$match": {"product_id": product["id"]}},
+                {"$group": {
+                    "_id": "$product_id",
+                    "average_rating": {"$avg": "$rating"},
+                    "total_ratings": {"$sum": 1}
+                }}
+            ]
+
+            rating_stats = await db.ratings.aggregate(ratings_pipeline).to_list(1)
+
+            if rating_stats:
+                product["average_rating"] = rating_stats[0]["average_rating"]
+                product["total_ratings"] = rating_stats[0]["total_ratings"]
+            else:
+                product["average_rating"] = 0
+                product["total_ratings"] = 0
+
+            valid_products.append(Product(**product))
+        except Exception as e:
+            logging.warning(f"Skipping invalid product {product.get('id', 'unknown')}: {e}")
+            continue
+    return valid_products
 
 @api_router.get("/products/{product_id}", response_model=Product)
 async def get_product(product_id: str):
@@ -630,12 +1013,116 @@ async def update_product(product_id: str, product_data: ProductCreate, admin_use
 
 @api_router.delete("/products/{product_id}")
 async def delete_product(product_id: str, admin_user: User = Depends(get_admin_user)):
+    logging.info(f"Attempting to delete product with ID: {product_id}")
+
+    # First, check if product exists with any query method
+    product_by_id = await db.products.find_one({"id": product_id})
+    product_by_objectid = None
+    if ObjectId.is_valid(product_id):
+        try:
+            product_by_objectid = await db.products.find_one({"_id": ObjectId(product_id)})
+        except Exception:
+            pass
+
+    logging.info(f"Product by id field: {product_by_id is not None}")
+    logging.info(f"Product by _id field: {product_by_objectid is not None}")
+
+    # Try to delete by id field first
     result = await db.products.delete_one({"id": product_id})
+
+    # If not found and product_id looks like ObjectId, try by _id
     if result.deleted_count == 0:
+        try:
+            if ObjectId.is_valid(product_id):
+                result = await db.products.delete_one({"_id": ObjectId(product_id)})
+        except Exception as e:
+            logging.warning(f"ObjectId conversion failed: {e}")
+
+    logging.info(f"Delete result - deleted_count: {result.deleted_count}")
+
+    if result.deleted_count == 0:
+        # Log all products for debugging
+        all_products = await db.products.find({}).limit(10).to_list(10)
+        product_ids = [str(p.get('id', p.get('_id', 'no-id'))) for p in all_products]
+        logging.error(f"Product {product_id} not found. Available products: {product_ids}")
         raise HTTPException(status_code=404, detail="Product not found")
     return {"message": "Product deleted successfully"}
 
+@api_router.get("/products/{product_id}/ratings")
+async def get_product_ratings(product_id: str):
+    """Get all ratings for a product"""
+    try:
+        ratings_cursor = db.ratings.find({"product_id": product_id})
+        ratings = []
+        async for rating_doc in ratings_cursor:
+            # Convert ObjectId to string and create Rating object
+            rating_data = {k: v for k, v in rating_doc.items() if k != "_id"}
+            if "_id" in rating_doc:
+                rating_data["id"] = str(rating_doc["_id"])
+            ratings.append(Rating(**rating_data))
+        return ratings
+    except Exception as e:
+        logging.error(f"Get ratings error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get ratings")
 
+@api_router.post("/products/{product_id}/ratings")
+async def submit_product_rating(
+    product_id: str,
+    rating_data: RatingCreate,
+    current_user: User = Depends(get_current_user)
+):
+    """Submit a rating for a product"""
+    try:
+        # Check if product exists
+        product = await db.products.find_one({"id": product_id})
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        # Check if user already rated this product
+        existing_rating = await db.ratings.find_one({
+            "user_id": current_user.id,
+            "product_id": product_id
+        })
+
+        if existing_rating:
+            raise HTTPException(status_code=400, detail="You have already rated this product and cannot change your rating.")
+
+        # Create new rating
+        rating = Rating(
+            user_id=current_user.id,
+            product_id=product_id,
+            rating=rating_data.rating
+        )
+        await db.ratings.insert_one(rating.dict())
+
+        # Recalculate and update product's average rating and total ratings
+        ratings_pipeline = [
+            {"$match": {"product_id": product_id}},
+            {"$group": {
+                "_id": "$product_id",
+                "average_rating": {"$avg": "$rating"},
+                "total_ratings": {"$sum": 1}
+            }}
+        ]
+
+        rating_stats = await db.ratings.aggregate(ratings_pipeline).to_list(1)
+
+        if rating_stats:
+            await db.products.update_one(
+                {"id": product_id},
+                {"$set": {
+                    "average_rating": rating_stats[0]["average_rating"],
+                    "total_ratings": rating_stats[0]["total_ratings"]
+                }}
+            )
+
+        return {"message": "Rating submitted successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Submit rating error: {e}")
+        raise HTTPException(status_code=500, detail="You have already rated this product and cannot change your rating.")
 
 # ORDER ROUTES for cancelled order
 @api_router.get("/orders", response_model=List[Order])
@@ -671,27 +1158,71 @@ async def create_order(order_data: OrderCreate, current_user: User = Depends(get
         if not user_doc:
             raise HTTPException(status_code=404, detail="User not found")
 
+        # Check if user has delivery address
+        delivery_address_data = user_doc.get("delivery_address")
+        if not delivery_address_data:
+            raise HTTPException(status_code=400, detail="Please add a delivery address before placing an order")
+
+        # Generate sequential order ID starting from 0001
+        # Find the highest existing order_id number
+        last_order = await db.orders.find_one(
+            {"order_id": {"$exists": True, "$ne": None}},
+            sort=[("order_id", -1)]
+        )
+
+        if last_order and last_order.get("order_id"):
+            # Extract number from existing order_id (e.g., "0001" -> 1)
+            try:
+                last_number = int(last_order["order_id"])
+                next_number = last_number + 1
+            except (ValueError, TypeError):
+                next_number = 1
+        else:
+            next_number = 1
+
+        # Format as 4-digit zero-padded string
+        order_id = f"{next_number:04d}"
+
         # Create order dict with user information
         order_dict = order_data.dict()
-        delivery_address_data = user_doc.get("delivery_address")
-        if delivery_address_data:
-            # Ensure delivery_address is properly serialized
-            delivery_address = DeliveryAddress(**delivery_address_data)
-            order_dict["delivery_address"] = delivery_address.dict()
-        else:
-            order_dict["delivery_address"] = None
+        # Ensure delivery_address is properly serialized
+        delivery_address = DeliveryAddress(**delivery_address_data)
+        order_dict["delivery_address"] = delivery_address.dict()
 
         order_dict.update({
             "user_id": current_user.id,
             "user_email": current_user.email,
-            "status": "pending"
+            "status": "pending",
+            "order_id": order_id
         })
 
-        # Create Order instance
+        # Create Order instance with custom id (sequential order_id)
         order = Order(**order_dict)
+        # Override the id field with the sequential order_id
+        order.id = order_id
 
         # Insert order into database
         await db.orders.insert_one(order.dict())
+
+        # Reduce stock for each product in the order
+        for order_item in order_data.products:
+            product = await db.products.find_one({"id": order_item.product_id})
+            if not product:
+                logging.error(f"Product {order_item.product_id} not found during stock reduction")
+                raise HTTPException(status_code=500, detail=f"Product {order_item.product_id} not found")
+
+            current_stock = product.get("stock", 0)
+            if current_stock < order_item.quantity:
+                logging.error(f"Insufficient stock for product {order_item.product_id}: requested {order_item.quantity}, available {current_stock}")
+                raise HTTPException(status_code=400, detail=f"Insufficient stock for product {order_item.name}")
+
+            # Reduce stock
+            new_stock = current_stock - order_item.quantity
+            await db.products.update_one(
+                {"id": order_item.product_id},
+                {"$set": {"stock": new_stock}}
+            )
+            logging.info(f"Reduced stock for product {order_item.product_id} from {current_stock} to {new_stock}")
 
         # Return Order instance to ensure proper serialization
         return order
@@ -778,6 +1309,83 @@ async def cancel_order(order_id: str, current_user: User = Depends(get_current_u
     except Exception as e:
         logging.error(f"Cancel order error: {e}")
         raise HTTPException(status_code=500, detail="Failed to cancel order")
+
+@api_router.post("/orders/buy-now")
+async def create_buy_now_order(order_data: OrderCreate, current_user: User = Depends(get_current_user)):
+    """Create a buy now order (direct purchase without cart)"""
+    try:
+        # Get user delivery address
+        user_doc = await db.users.find_one({"id": current_user.id})
+        if not user_doc:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Check if user has delivery address
+        delivery_address_data = user_doc.get("delivery_address")
+        if not delivery_address_data:
+            raise HTTPException(status_code=400, detail="Please add a delivery address before placing an order")
+
+        # Validate stock for each product
+        for order_item in order_data.products:
+            product = await db.products.find_one({"id": order_item.product_id})
+            if not product:
+                raise HTTPException(status_code=404, detail=f"Product {order_item.product_id} not found")
+
+            current_stock = product.get("stock", 0)
+            if current_stock < order_item.quantity:
+                raise HTTPException(status_code=400, detail=f"Insufficient stock for product {order_item.name}")
+
+        # Generate sequential order ID starting from 0001
+        last_order = await db.orders.find_one(
+            {"order_id": {"$exists": True, "$ne": None}},
+            sort=[("order_id", -1)]
+        )
+
+        if last_order and last_order.get("order_id"):
+            try:
+                last_number = int(last_order["order_id"])
+                next_number = last_number + 1
+            except (ValueError, TypeError):
+                next_number = 1
+        else:
+            next_number = 1
+
+        order_id = f"{next_number:04d}"
+
+        # Create order dict
+        order_dict = order_data.dict()
+        delivery_address = DeliveryAddress(**delivery_address_data)
+        order_dict["delivery_address"] = delivery_address.dict()
+
+        order_dict.update({
+            "user_id": current_user.id,
+            "user_email": current_user.email,
+            "status": "pending",
+            "order_id": order_id
+        })
+
+        order = Order(**order_dict)
+        order.id = order_id
+
+        # Insert order
+        await db.orders.insert_one(order.dict())
+
+        # Reduce stock for each product
+        for order_item in order_data.products:
+            product = await db.products.find_one({"id": order_item.product_id})
+            current_stock = product.get("stock", 0)
+            new_stock = current_stock - order_item.quantity
+            await db.products.update_one(
+                {"id": order_item.product_id},
+                {"$set": {"stock": new_stock}}
+            )
+
+        return order
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Buy now order creation error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create order")
 
 # SUPPORT ROUTES
 @api_router.post("/support/tickets", response_model=SupportTicket)
@@ -1043,7 +1651,7 @@ async def upload_images(files: List[UploadFile] = File(...), admin_user: User = 
                     buffer.write(content)
                 # construct public URL using your server root; in production set proper base URL
                 # When deploying on Render/Vercel you should use your deployed domain here.
-                public_url = f"{os.environ.get('BACKEND_PUBLIC_URL', 'http://localhost:8000')}/uploads/{unique_filename}"
+                public_url = f"{os.environ.get('BACKEND_BASE_URL', 'http://localhost:8000')}/uploads/{unique_filename}"
                 uploaded_urls.append(public_url)
             except Exception as e:
                 logging.error(f"Local file save failed for {file.filename}: {e}")
@@ -1061,6 +1669,9 @@ async def upload_images(files: List[UploadFile] = File(...), admin_user: User = 
 @api_router.post("/test-email")
 async def test_email(email: str):
     """Test email sending functionality"""
+    if not mail:
+        return {"error": "Email configuration not set up properly"}
+
     test_message = MessageSchema(
         subject="Test Email - E-Commerce App",
         recipients=[email],
@@ -1070,14 +1681,16 @@ async def test_email(email: str):
             <h2>Test Email</h2>
             <p>This is a test email to verify SMTP configuration.</p>
             <p>If you received this email, your SMTP settings are working correctly!</p>
+            <p>Time sent: {}</p>
         </body>
         </html>
-        """,
+        """.format(datetime.now(timezone.utc).isoformat()),
         subtype="html"
     )
 
     try:
         await mail.send_message(test_message)
+        logging.info(f"Test email sent successfully to {email}")
         return {"message": "Test email sent successfully!"}
     except Exception as e:
         logging.error(f"Failed to send test email: {e}")

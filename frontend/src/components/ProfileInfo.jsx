@@ -11,6 +11,7 @@ import { Badge } from './ui/badge';
 import { User, LogOut } from 'lucide-react';
 import { useAuth } from '../App';
 import { toast } from 'sonner';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}`;
@@ -33,8 +34,14 @@ const profileFormSchema = z.object({
 });
 
 const ProfileInfo = () => {
-  const { user, logout, updateUser } = useAuth();
+  const { user, logout, updateUser, changePassword } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
+  const [passwordData, setPasswordData] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
+  const [passwordLoading, setPasswordLoading] = useState(false);
 
   const form = useForm({
     resolver: zodResolver(profileFormSchema),
@@ -162,6 +169,32 @@ const ProfileInfo = () => {
       } else {
         toast.error(error.response?.data?.detail || 'Failed to update profile');
       }
+    }
+  };
+
+  const handlePasswordChange = async (e) => {
+    e.preventDefault();
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      toast.error('New passwords do not match');
+      return;
+    }
+    if (passwordData.newPassword.length < 6) {
+      toast.error('New password must be at least 6 characters');
+      return;
+    }
+
+    setPasswordLoading(true);
+    try {
+      await changePassword(passwordData.currentPassword, passwordData.newPassword);
+      setPasswordData({
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: ''
+      });
+    } catch (error) {
+      // Error is handled in the changePassword function
+    } finally {
+      setPasswordLoading(false);
     }
   };
 

@@ -1,9 +1,6 @@
 import React, { useState, useEffect, createContext, useContext } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
 import './App.css';
 
 // Import UI components
@@ -19,6 +16,9 @@ import { Toaster } from './components/ui/sonner';
 
 // Icons
 import { ShoppingCart, User, Star, Package, Users, BarChart3, Ticket, Plus, Minus, CreditCard, LogOut, Menu, X, Search, Filter, ArrowRight, Mail, Phone, MapPin, HelpCircle, Trash2, Send } from 'lucide-react';
+
+// Import Auth component
+import Auth from './pages/Auth';
 
 
 
@@ -42,6 +42,9 @@ import CheckoutPage from './components/CheckoutPage';
 
 // Import OrderSuccessPage
 import OrderSuccessPage from './components/OrderSuccessPage';
+
+// Import ProductDetail
+import ProductDetail from './pages/ProductDetail';
 
 // Import Profile Components
 import ProfileLayout from './components/ProfileLayout';
@@ -94,26 +97,80 @@ const AuthProvider = ({ children }) => {
       localStorage.setItem('token', access_token);
       axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
       setUser(userData);
+      setLoading(false); // Ensure loading is set to false
       toast.success('Login successful!');
+      // Force immediate re-render
+      setTimeout(() => {
+        window.dispatchEvent(new Event('auth-change'));
+      }, 0);
       return userData;
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Login failed');
+      toast.error(error.response?.data?.message || 'Login failed');
       throw error;
     }
   };
 
-  const register = async (name, email, password) => {
+  const register = async (username, email, password) => {
     try {
-      const response = await axios.post(`${API}/api/auth/register`, { name, email, password });
-      const { access_token, user: userData } = response.data;
-
-      localStorage.setItem('token', access_token);
-      axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
-      setUser(userData);
-      toast.success('Registration successful!');
-      return userData;
+      const response = await axios.post(`${API}/api/auth/register`, { username, email, password });
+      toast.success('Signup successful! Please check your email for OTP verification.');
+      return response.data;
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Registration failed');
+      toast.error(error.response?.data?.message || 'Signup failed');
+      throw error;
+    }
+  };
+
+  const verifyOtp = async (email, otp) => {
+    try {
+      const response = await axios.post(`${API}/api/auth/verify-otp`, { email, otp });
+      toast.success('Account verified successfully!');
+      return response.data;
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'OTP verification failed');
+      throw error;
+    }
+  };
+
+  const forgotPassword = async (email) => {
+    try {
+      const response = await axios.post(`${API}/api/auth/forgot-password/request`, { email });
+      toast.success('Password reset OTP sent to your email!');
+      return response.data;
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to send reset OTP');
+      throw error;
+    }
+  };
+
+  const verifyResetOtp = async (email, otp) => {
+    try {
+      const response = await axios.post(`${API}/api/auth/forgot-password/verify`, { email, otp });
+      return response.data;
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'OTP verification failed');
+      throw error;
+    }
+  };
+
+  const resetPassword = async (email, otp, newPassword) => {
+    try {
+      const response = await axios.post(`${API}/api/auth/forgot-password/reset`, { email, otp, newPassword });
+      toast.success('Password reset successful!');
+      return response.data;
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Password reset failed');
+      throw error;
+    }
+  };
+
+  const changePassword = async (currentPassword, newPassword) => {
+    try {
+      const response = await axios.post(`${API}/api/auth/change-password`, { currentPassword, newPassword });
+      toast.success('Password changed successfully!');
+      return response.data;
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Password change failed');
       throw error;
     }
   };
@@ -134,7 +191,7 @@ const AuthProvider = ({ children }) => {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, login, register, logout, loading, updateUser }}>
+    <AuthContext.Provider value={{ user, login, register, logout, loading, updateUser, verifyOtp, forgotPassword, verifyResetOtp, resetPassword, changePassword }}>
       {children}
     </AuthContext.Provider>
   );
@@ -146,6 +203,25 @@ const useAuth = () => {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
+};
+
+// Protected Route Component
+const ProtectedRoute = ({ children, adminOnly = false }) => {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  }
+
+  if (!user) {
+    return <Navigate to="/auth" replace />;
+  }
+
+  if (adminOnly && user.role !== 'admin') {
+    return <Navigate to="/" replace />;
+  }
+
+  return children;
 };
 
 export { useAuth, useCart };
@@ -246,6 +322,12 @@ const Navigation = () => {
   const { user, logout } = useAuth();
   const { getTotalItems } = useCart();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [authState, setAuthState] = useState({ user: null, isAuthenticated: false });
+
+  // Sync auth state with context
+  useEffect(() => {
+    setAuthState({ user, isAuthenticated: !!user });
+  }, [user]);
 
   return (
     <nav className="border-b bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60 sticky top-0 z-50">
@@ -282,9 +364,9 @@ const Navigation = () => {
               </a>
             )}
 
-            {user ? (
+            {authState.isAuthenticated && authState.user ? (
               <div className="flex items-center space-x-4">
-                {user.role === 'admin' && (
+                {authState.user.role === 'admin' && (
                   <a href="/admin" className="text-gray-700 hover:text-gray-900 transition-colors">
                     Admin
                   </a>
@@ -303,10 +385,10 @@ const Navigation = () => {
               </div>
             ) : (
               <div className="flex items-center space-x-2">
-                <a href="/login">
+                <a href="/auth">
                   <Button variant="ghost" size="sm">Login</Button>
                 </a>
-                <a href="/register">
+                <a href="/auth?tab=signup">
                   <Button size="sm">Sign Up</Button>
                 </a>
               </div>
@@ -403,8 +485,8 @@ const HomePage = () => {
         <div className="max-w-7xl mx-auto">
           <h2 className="text-3xl font-bold text-center mb-12 text-gray-900">Featured Products</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {featuredProducts.map(product => (
-              <ProductCard key={product.id} product={product} />
+            {featuredProducts.map((product, index) => (
+              <ProductCard key={`${product.id}-${index}`} product={product} />
             ))}
           </div>
           <div className="text-center mt-12">
@@ -451,11 +533,67 @@ const HomePage = () => {
 // Product Card Component
 const ProductCard = ({ product }) => {
   const { addToCart } = useCart();
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  const handleCardClick = (e) => {
+    // Prevent navigation if clicking on buttons
+    if (e.target.closest('button')) {
+      return;
+    }
+    navigate(`/product/${product.id}`);
+  };
+
+  const handleBuyNow = (e) => {
+    e.stopPropagation();
+    if (!user) {
+      toast.error('Please login to buy now');
+      navigate('/auth');
+      return;
+    }
+
+    if (product.stock === 0) {
+      toast.error('Product is out of stock');
+      return;
+    }
+
+    // Store buy now item in localStorage
+    const buyNowItem = {
+      product: product,
+      quantity: 1,
+      total: product.price
+    };
+    localStorage.setItem('buyNowItem', JSON.stringify(buyNowItem));
+
+    // Navigate to checkout
+    navigate('/checkout');
+  };
+
+  const renderStars = (rating) => {
+    return (
+      <div className="flex items-center space-x-1">
+        {[1, 2, 3, 4, 5].map((star) => (
+          <Star
+            key={star}
+            className={`h-4 w-4 ${
+              star <= rating
+                ? 'fill-yellow-400 text-yellow-400'
+                : 'text-gray-300'
+            }`}
+          />
+        ))}
+      </div>
+    );
+  };
 
   return (
-    <Card className="group hover:shadow-lg transition-all duration-300 border-0 bg-white/80 backdrop-blur">
-      <CardContent className="p-6">
-        <div className="aspect-square bg-gray-100 rounded-lg mb-4 overflow-hidden">
+    <Card
+      className="group hover:shadow-lg transition-all duration-300 border-0 bg-white/80 backdrop-blur cursor-pointer h-[460px] flex flex-col overflow-hidden"
+      onClick={handleCardClick}
+    >
+      <CardContent className="p-6 flex flex-col h-full">
+        {/* Product Image - Fixed Height */}
+        <div className="w-full h-48 bg-gray-100 rounded-lg mb-4 overflow-hidden flex-shrink-0">
           {product.images && product.images.length > 0 ? (
             <img
               src={product.images[0]}
@@ -468,21 +606,63 @@ const ProductCard = ({ product }) => {
             </div>
           )}
         </div>
-        <h3 className="font-semibold text-lg mb-2 text-gray-900">{product.name}</h3>
-        <p className="text-gray-600 text-sm mb-3 line-clamp-2">{product.description}</p>
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-2xl font-bold text-blue-600">₹{product.price}</span>
-          <Badge variant="secondary">{product.category}</Badge>
+
+        {/* Product Content - Flex Grow */}
+        <div className="flex-1 flex flex-col min-h-0">
+          {/* Title - Max 2 lines */}
+          <h3 className="font-semibold text-lg mb-3 text-gray-900 line-clamp-2 flex-shrink-0">
+            {product.name}
+          </h3>
+
+          {/* Price */}
+          <div className="mb-3 flex-shrink-0">
+            <span className="text-2xl font-bold text-blue-600">₹{product.price}</span>
+          </div>
+
+          {/* Rating */}
+          {product.average_rating !== undefined && (
+            <div className="flex items-center space-x-2 mb-3 flex-shrink-0">
+              {renderStars(Math.round(product.average_rating))}
+              <span className="text-sm text-gray-600">
+                ({product.total_ratings || 0})
+              </span>
+            </div>
+          )}
+
+          {/* Stock */}
+          <div className="flex items-center justify-between mb-3 flex-shrink-0">
+            <span className="text-sm text-gray-500">Stock: {product.stock}</span>
+            <Badge variant="secondary">{product.category}</Badge>
+          </div>
+
+          {/* Description - Truncated */}
+          <p className="text-gray-600 text-sm line-clamp-2 flex-1">
+            {product.description}
+          </p>
         </div>
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-gray-500">Stock: {product.stock}</span>
-          <Button
-            onClick={() => addToCart(product)}
-            disabled={product.stock === 0}
-            className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white"
-          >
-            Add to Cart
-          </Button>
+
+        {/* Footer - Buttons - Pinned at Bottom */}
+        <div className="flex-shrink-0 mt-4">
+          <div className="flex space-x-2">
+            <Button
+              onClick={(e) => {
+                e.stopPropagation();
+                addToCart(product);
+              }}
+              disabled={product.stock === 0}
+              variant="outline"
+              className="flex-1"
+            >
+              Add to Cart
+            </Button>
+            <Button
+              onClick={handleBuyNow}
+              disabled={product.stock === 0}
+              className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white"
+            >
+              Buy Now
+            </Button>
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -547,8 +727,8 @@ const ProductsPage = () => {
 
         {/* Products Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {products.map(product => (
-            <ProductCard key={product.id} product={product} />
+          {products.map((product, index) => (
+            <ProductCard key={`${product.id}-${index}`} product={product} />
           ))}
         </div>
 
@@ -695,7 +875,7 @@ const CartPage = () => {
                 </Button>
                 {!user && (
                   <p className="text-sm text-gray-600 text-center">
-                    Please <a href="/login" className="text-blue-600 hover:underline">login</a> to checkout
+                    Please <a href="/auth" className="text-blue-600 hover:underline">login</a> to checkout
                   </p>
                 )}
                 <Button
@@ -995,7 +1175,7 @@ const HelpPage = () => {
 
   const fetchFAQs = async () => {
     try {
-      const response = await axios.get(`${API}/faqs`);
+      const response = await axios.get(`${API}/api/faqs`);
       setFaqs(response.data);
     } catch (error) {
       console.error('Error fetching FAQs:', error);
@@ -1150,7 +1330,7 @@ const ContactPage = () => {
                 </div>
                 <div>
                   <h3 className="font-semibold">Phone</h3>
-                  <p className="text-gray-600">+1 (555) 123-4567</p>
+                  <p className="text-gray-600">+91 8879635312</p>
                 </div>
               </div>
               
@@ -1161,9 +1341,9 @@ const ContactPage = () => {
                 <div>
                   <h3 className="font-semibold">Address</h3>
                   <p className="text-gray-600">
-                    123 Commerce Street<br />
-                    Business District<br />
-                    City, State 12345
+                    D Sector O Line,<br />
+                    Near Alfalah Masjid,<br />
+                    Maharashtra, 400088
                   </p>
                 </div>
               </div>
@@ -1380,40 +1560,23 @@ const ProfileOrdersPage = () => {
   );
 };
 
-// Protected Route Component
-const ProtectedRoute = ({ children, adminOnly = false }) => {
-  const { user, loading } = useAuth();
-
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
-  }
-
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
-
-  if (adminOnly && user.role !== 'admin') {
-    return <Navigate to="/" replace />;
-  }
-
-  return children;
-};
-
 // Main App Component
 function App() {
+  const [navKey, setNavKey] = useState(0);
+
   return (
     <ErrorBoundary>
       <AuthProvider>
         <CartProvider>
           <Router>
             <div className="App">
-              <Navigation />
-              <Routes>
+              <Navigation key={navKey} onAuthChange={() => setNavKey(prev => prev + 1)} />
+            <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/products" element={<ProductsPage />} />
+              <Route path="/product/:productId" element={<ProductDetail />} />
               <Route path="/cart" element={<CartPage />} />
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/register" element={<RegisterPage />} />
+              <Route path="/auth" element={<Auth />} />
               <Route path="/help" element={<HelpPage />} />
               <Route path="/contact" element={<ContactPage />} />
               {/* Removed CheckoutPage route because component is missing */}

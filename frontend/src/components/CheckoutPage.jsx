@@ -6,12 +6,17 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
 const CheckoutPage = () => {
   const { user, updateUser } = useAuth();
   const { cartItems, clearCart, getTotalPrice } = useCart();
+
+  // Check if this is a buy now checkout
+  const [buyNowItem, setBuyNowItem] = useState(null);
+  const [isBuyNow, setIsBuyNow] = useState(false);
   const [address, setAddress] = useState({
     street: '',
     city: '',
@@ -28,6 +33,19 @@ const CheckoutPage = () => {
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
 
   useEffect(() => {
+    // Check if this is a buy now checkout from URL state or localStorage
+    const buyNowData = localStorage.getItem('buyNowItem');
+    if (buyNowData) {
+      try {
+        const item = JSON.parse(buyNowData);
+        setBuyNowItem(item);
+        setIsBuyNow(true);
+        localStorage.removeItem('buyNowItem'); // Clear after use
+      } catch (error) {
+        console.error('Error parsing buy now data:', error);
+      }
+    }
+
     if (user) {
       fetchUserData();
     } else {
@@ -153,33 +171,54 @@ const CheckoutPage = () => {
   const handlePlaceOrder = async () => {
     setIsPlacingOrder(true);
     try {
-      // Generate unique order ID
-      const orderId = `ORD${Date.now()}${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
+      let orderData;
+      let apiEndpoint;
 
-      // Prepare order data to match backend OrderCreate model
-      const orderData = {
-        products: cartItems.map(item => ({
-          product_id: item.product.id,
-          name: item.product.name,
-          quantity: item.quantity,
-          price: item.product.price,
-          total: item.product.price * item.quantity
-        })),
-        total_amount: getTotalPrice()
-      };
+      if (isBuyNow && buyNowItem) {
+        // Buy now order
+        orderData = {
+          products: [{
+            product_id: buyNowItem.product.id,
+            name: buyNowItem.product.name,
+            quantity: buyNowItem.quantity,
+            price: buyNowItem.product.price,
+            total: buyNowItem.total
+          }],
+          total_amount: buyNowItem.total
+        };
+        apiEndpoint = `${API}/api/orders/buy-now`;
+      } else {
+        // Regular cart order
+        orderData = {
+          products: cartItems.map(item => ({
+            product_id: item.product.id,
+            name: item.product.name,
+            quantity: item.quantity,
+            price: item.product.price,
+            total: item.product.price * item.quantity
+          })),
+          total_amount: getTotalPrice()
+        };
+        apiEndpoint = `${API}/api/orders`;
+      }
 
       // Create order via API
-      const response = await axios.post(`${API}/api/orders`, orderData, {
+      const response = await axios.post(apiEndpoint, orderData, {
         headers: {
           Authorization: `Bearer ${localStorage.getItem('token')}`
         }
       });
 
-      // Clear cart
-      clearCart();
+      // Clear cart if it was a cart order
+      if (!isBuyNow) {
+        clearCart();
+      }
+
+      // Use the order_id from backend response (sequential format like "0001")
+      const backendOrderId = response.data.order_id || response.data.id;
 
       // Redirect to success page
-      window.location.href = `/order-success/${orderId}`;
+      window.location.href = `/order-success/${backendOrderId}`;
     } catch (error) {
       console.error('Error placing order:', error);
       toast.error(error.response?.data?.detail || 'Failed to place order');
@@ -306,10 +345,10 @@ const CheckoutPage = () => {
 
       <Button
         onClick={handlePlaceOrder}
-        disabled={isPlacingOrder || cartItems.length === 0}
+        disabled={isPlacingOrder || (!isBuyNow && cartItems.length === 0)}
         className="w-full"
       >
-        {isPlacingOrder ? 'Placing Order...' : `Place Order - ₹${getTotalPrice().toFixed(2)}`}
+        {isPlacingOrder ? 'Placing Order...' : `Place Order - ₹${isBuyNow ? buyNowItem?.total?.toFixed(2) : getTotalPrice().toFixed(2)}`}
       </Button>
     </div>
   );

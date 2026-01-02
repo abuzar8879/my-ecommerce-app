@@ -20,16 +20,18 @@ const ProfileLayout = ({ children }) => {
       label: 'Settings',
       icon: Settings
     },
-    {
-      path: '/profile/tickets',
-      label: 'My Tickets',
-      icon: Ticket
-    },
-    {
-      path: '/profile/orders',
-      label: 'Order History',
-      icon: Package
-    }
+    ...(user?.role !== 'admin' ? [
+      {
+        path: '/profile/tickets',
+        label: 'My Tickets',
+        icon: Ticket
+      },
+      {
+        path: '/profile/orders',
+        label: 'Order History',
+        icon: Package
+      }
+    ] : [])
   ];
 
   const isActive = (path, exact = false) => {
