@@ -127,13 +127,15 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 origins = [
     "https://my-ecommerce-app-mocha.vercel.app",
     "https://*.vercel.app",
+    "https://my-ecommerce-app-otgm.onrender.com",
+    "https://*.onrender.com",
     "http://localhost:3000"
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_origin_regex=r"https://.*\.(vercel\.app|onrender\.com)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -146,11 +148,14 @@ app.add_middleware(
 
 class UserBase(BaseModel):
     name: str
-    email: EmailStr
+    email: str
     role: str = "user"  # user or admin
 
-class UserCreate(UserBase):
+class UserCreate(BaseModel):
+    name: str
+    email: str
     password: str
+    role: str = "user"
 
 class UserLogin(BaseModel):
     email: EmailStr
