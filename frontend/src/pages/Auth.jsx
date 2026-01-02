@@ -24,6 +24,7 @@ export default function Auth() {
     name: '',
     email: '',
     password: '',
+    role: 'user',
   });
   const [loginData, setLoginData] = useState({ email: '', password: '' });
   const [otpData, setOtpData] = useState({ email: '', otp: '' });
@@ -64,7 +65,7 @@ export default function Auth() {
 
     setLoading(true);
     try {
-      await axios.post(`${API}/api/auth/register`, { name, email, password });
+      await axios.post(`${API}/api/auth/register`, { name, email, password, role: 'user' });
       setOtpData({ email, otp: '' });
       setActiveTab('verify');
       toast.success('Signup successful! Please check your email for OTP verification.');
