@@ -2,6 +2,8 @@ from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request,
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
@@ -103,6 +105,23 @@ security = HTTPBearer()
 # Create the main app
 app = FastAPI(title="E-Commerce API", version="1.0.0")
 api_router = APIRouter(prefix="/api")
+
+# Add validation error handler
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    errors = []
+    for error in exc.errors():
+        field = ".".join(str(loc) for loc in error["loc"])
+        msg = error["msg"]
+        errors.append(f"{field}: {msg}")
+
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": "Validation error",
+            "errors": errors
+        }
+    )
 
 # CORS Middleware
 origins = [

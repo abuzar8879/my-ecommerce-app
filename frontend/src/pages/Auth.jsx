@@ -21,7 +21,7 @@ export default function Auth() {
 
   const [activeTab, setActiveTab] = useState(initialTab);
   const [signupData, setSignupData] = useState({
-    username: '',
+    name: '',
     email: '',
     password: '',
   });
@@ -43,9 +43,9 @@ export default function Auth() {
     }
   }, [navigate]);
 
-  function validateSignup(username, email, password) {
-    if (!username || username.length < 3)
-      return 'Username must be at least 3 characters';
+  function validateSignup(name, email, password) {
+    if (!name || name.length < 3)
+      return 'Name must be at least 3 characters';
     if (!email || !/\S+@\S+\.\S+/.test(email)) return 'Invalid email format';
     if (!password || password.length < 6)
       return 'Password must be at least 6 characters';
@@ -54,9 +54,9 @@ export default function Auth() {
 
   async function handleSignup(e) {
     e.preventDefault();
-    const { username, email, password } = signupData;
+    const { name, email, password } = signupData;
 
-    const validationError = validateSignup(username, email, password);
+    const validationError = validateSignup(name, email, password);
     if (validationError) {
       toast.error(validationError);
       return;
@@ -64,7 +64,7 @@ export default function Auth() {
 
     setLoading(true);
     try {
-      await axios.post(`${API}/api/auth/register`, { username, email, password });
+      await axios.post(`${API}/api/auth/register`, { name, email, password });
       setOtpData({ email, otp: '' });
       setActiveTab('verify');
       toast.success('Signup successful! Please check your email for OTP verification.');
@@ -298,14 +298,14 @@ export default function Auth() {
 
               <form onSubmit={handleSignup} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="signup-username">Username</Label>
+                  <Label htmlFor="signup-name">Name</Label>
                   <Input
-                    id="signup-username"
+                    id="signup-name"
                     type="text"
-                    placeholder="Choose a username"
-                    value={signupData.username}
+                    placeholder="Enter your name"
+                    value={signupData.name}
                     onChange={(e) =>
-                      setSignupData({ ...signupData, username: e.target.value })
+                      setSignupData({ ...signupData, name: e.target.value })
                     }
                     required
                   />
