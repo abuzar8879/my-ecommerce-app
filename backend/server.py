@@ -64,29 +64,7 @@ JWT_EXPIRATION_HOURS = 24 * 7  # 1 week
 
 
 # Email Configuration
-MAIL_USERNAME = os.environ.get('MAIL_USERNAME')
-MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
-MAIL_FROM = MAIL_USERNAME  # Use the authenticated email address
-
-MAIL_PORT = int(os.environ.get('MAIL_PORT', 587))
-MAIL_SERVER = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
-
-# FastAPI-Mail Configuration
-if MAIL_USERNAME and MAIL_PASSWORD:
-    mail_config = ConnectionConfig(
-        MAIL_USERNAME=MAIL_USERNAME,
-        MAIL_PASSWORD=MAIL_PASSWORD,
-        MAIL_FROM=MAIL_FROM,
-        MAIL_PORT=MAIL_PORT,
-        MAIL_SERVER=MAIL_SERVER,
-        MAIL_STARTTLS=True,
-        MAIL_SSL_TLS=False,
-        USE_CREDENTIALS=True,
-        VALIDATE_CERTS=True
-    )
-    mail = FastMail(mail_config)
-else:
-    mail = None
+RESEND_API_KEY = os.environ.get('RESEND_API_KEY')
 
 # OTP Configuration
 OTP_EXPIRY_MINUTES = 10
@@ -364,7 +342,7 @@ async def send_email(to_email: str, subject: str, body: str):
             logging.info(f"Email sent successfully to {to_email}")
         except Exception as e:
             logging.error(f"Failed to send email via Resend: {e}")
-            raise HTTPException(status_code=500, detail="Failed to send email")
+            # Don't raise exception - just log the error
 
 def create_access_token(user_id: str, email: str, role: str) -> str:
     payload = {
@@ -470,6 +448,7 @@ async def register(user_data: UserCreate):
 
     await db.users.insert_one(user_dict)
 
+    # Try to send email but don't fail registration if it fails
     try:
         await send_email(
             user_data.email,
@@ -1691,64 +1670,7 @@ async def upload_images(files: List[UploadFile] = File(...), admin_user: User = 
     return {"urls": uploaded_urls}
 
 
-# Test email endpoint
-@api_router.post("/test-email")
-async def test_email(email: str):
-    """Test email sending functionality"""
-    if not mail:
-        return {"error": "Email configuration not set up properly"}
 
-    test_message = MessageSchema(
-        subject="Test Email - E-Commerce App",
-        recipients=[email],
-        body="""
-        <html>
-        <body>
-            <h2>Test Email</h2>
-            <p>This is a test email to verify SMTP configuration.</p>
-            <p>If you received this email, your SMTP settings are working correctly!</p>
-            <p>Time sent: {}</p>
-        </body>
-        </html>
-        """.format(datetime.now(timezone.utc).isoformat()),
-        subtype="html"
-    )
-
-    try:
-        await mail.send_message(test_message)
-        logging.info(f"Test email sent successfully to {email}")
-        return {"message": "Test email sent successfully!"}
-    except Exception as e:
-        logging.error(f"Failed to send test email: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to send test email: {str(e)}")
-
-# Send test email endpoint
-@api_router.post("/send-test-email")
-async def send_test_email(email: str):
-    """Send a test email to verify SMTP configuration"""
-    message = MessageSchema(
-        subject="SMTP Test - E-Commerce App",
-        recipients=[email],
-        body="""
-        <html>
-        <body>
-            <h2>SMTP Configuration Test</h2>
-            <p>This is a test email to verify that your FastAPI-Mail SMTP configuration is working correctly.</p>
-            <p>If you received this email, your email settings are properly configured!</p>
-            <br>
-            <p>Best regards,<br>E-Commerce App Team</p>
-        </body>
-        </html>
-        """,
-        subtype="html"
-    )
-
-    try:
-        await mail.send_message(message)
-        return {"message": "Test email sent successfully! Check your inbox."}
-    except Exception as e:
-        logging.error(f"Failed to send test email: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to send test email: {str(e)}")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
