@@ -459,7 +459,21 @@ async def register(user_data: UserCreate):
         otp_expires = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)
         logging.info(f"Generated OTP for {user_data.email}: {otp}")
 
-        # Hash password and create user with verification fields
+        # Send OTP email FIRST (before inserting user)
+        subject = "Email Verification OTP - Shop Mate"
+        body = f"""
+        <html>
+        <body>
+            <h2>Welcome to Shop Mate!</h2>
+            <p>Your OTP for email verification is: <strong>{otp}</strong></p>
+            <p>This OTP will expire in {OTP_EXPIRY_MINUTES} minutes.</p>
+            <p>Please verify your email to complete registration.</p>
+        </body>
+        </html>
+        """
+        await send_email(user_data.email, subject, body)
+
+        # Only insert user AFTER email is sent successfully
         hashed_password = hash_password(user_data.password)
         user = User(**user_data.dict(exclude={"password"}))
         user.isVerified = False
@@ -473,20 +487,6 @@ async def register(user_data: UserCreate):
         # Insert user
         result = await db.users.insert_one(user_dict)
         logging.info(f"User inserted with ID: {result.inserted_id}")
-
-        # Send OTP email
-        subject = "Email Verification OTP - Shop Mate"
-        body = f"""
-        <html>
-        <body>
-            <h2>Welcome to Shop Mate!</h2>
-            <p>Your OTP for email verification is: <strong>{otp}</strong></p>
-            <p>This OTP will expire in {OTP_EXPIRY_MINUTES} minutes.</p>
-            <p>Please verify your email to complete registration.</p>
-        </body>
-        </html>
-        """
-        await send_email(user_data.email, subject, body)
 
         return {
             "user": user.dict(),
