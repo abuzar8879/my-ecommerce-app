@@ -64,10 +64,25 @@ JWT_EXPIRATION_HOURS = 24 * 7  # 1 week
 
 
 # Email Configuration
-RESEND_API_KEY = os.environ.get('RESEND_API_KEY')
-MAIL_FROM_RAW = os.environ.get('MAIL_FROM_RAW') or 'ShopMate <no-reply@shopmate.app>'
-email_match = re.search(r'<([^>]+)>', MAIL_FROM_RAW)
-MAIL_FROM = email_match.group(1) if email_match else MAIL_FROM_RAW
+RESEND_API_KEY = os.getenv("RESEND_API_KEY")
+FROM_EMAIL = "ShopMate <no-reply@shopmate.app>"
+
+async def send_email(to: str, subject: str, html: str):
+    async with httpx.AsyncClient() as client:
+        res = await client.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "from": FROM_EMAIL,
+                "to": [to],
+                "subject": subject,
+                "html": html,
+            },
+        )
+        res.raise_for_status()
 
 # OTP Configuration
 OTP_EXPIRY_MINUTES = 10
