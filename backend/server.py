@@ -12,7 +12,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr, validator
 from typing import List, Optional, Dict, Any
 import uuid
-import re
+
 import random
 from datetime import datetime, timezone, timedelta
 import bcrypt
