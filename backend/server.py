@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import re
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr, validator
 from typing import List, Optional, Dict, Any
@@ -61,13 +62,15 @@ JWT_SECRET = os.environ.get('JWT_SECRET', 'your-super-secret-key-change-in-produ
 JWT_ALGORITHM = 'HS256'
 # Email Configuration
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
-FROM_EMAIL = "ShopMate <no-reply@shopmate.app>"
+FROM_EMAIL = os.getenv("FROM_EMAIL")
+
+if not RESEND_API_KEY:
+    raise RuntimeError("RESEND_API_KEY is not set")
+
+if not FROM_EMAIL:
+    raise RuntimeError("FROM_EMAIL is not set")
 
 JWT_EXPIRATION_HOURS = 24 * 7  # 1 week
-
-# Email Configuration
-RESEND_API_KEY = os.getenv("RESEND_API_KEY")
-FROM_EMAIL = "onboarding@resend.dev"
 
 
 
@@ -340,13 +343,18 @@ async def send_email(to_email: str, subject: str, body: str, raise_on_error: boo
                     "Content-Type": "application/json"
                 },
                 json={
-                    "from": "onboarding@resend.dev",
+                    "from": FROM_EMAIL,
                     "to": [to_email],
                     "subject": subject,
                     "html": body
                 }
             )
-            response.raise_for_status()
+            if raise_on_error:
+                response.raise_for_status()
+            else:
+                if response.status_code >= 400:
+                    logging.error(f"Failed to send email via Resend: {response.status_code} {response.text}")
+                    return
             logging.info(f"Email sent successfully to {to_email}")
         except Exception as e:
             logging.error(f"Failed to send email via Resend: {e}")
@@ -439,37 +447,6 @@ async def login(login_data: UserLogin, request: Request):
 
 # OTP AUTH ROUTES
 @api_router.post("/auth/register")
-async def register(user_data: UserCreate):
-    existing_user = await db.users.find_one({"email": user_data.email})
-    if existing_user:
-        raise HTTPException(status_code=400, detail="Email already registered")
-
-    otp = generate_otp()
-    otp_expires = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)
-
-    user = User(**user_data.dict(exclude={"password"}))
-    user.isVerified = False
-    user.otp = otp
-    user.otpExpires = otp_expires
-
-    user_dict = user.dict()
-    user_dict["password_hash"] = hash_password(user_data.password)
-
-    # Send OTP email first - if it fails, don't create the user
-    await send_email(
-        user_data.email,
-        "Email Verification OTP - Shop Mate",
-        f"<h3>Your OTP is <b>{otp}</b></h3>",
-        raise_on_error=True
-    )
-
-    # Only create user if email was sent successfully
-    await db.users.insert_one(user_dict)
-
-    return {
-        "message": "Registration successful. Please verify OTP.",
-        "email": user_data.email
-    }
 
 @api_router.post("/auth/resend-otp")
 async def resend_otp(email: EmailStr):
