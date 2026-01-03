@@ -67,7 +67,8 @@ JWT_EXPIRATION_HOURS = 24 * 7  # 1 week
 
 # Email Configuration
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
-FROM_EMAIL = "ShopMate <no-reply@shopmate.app>"
+FROM_EMAIL = "onboarding@resend.dev"
+
 
 
 # OTP Configuration
@@ -321,10 +322,13 @@ def generate_otp() -> str:
     """Generate a 6-digit OTP"""
     return str(random.randint(100000, 999999))
 
-async def send_email(to_email: str, subject: str, body: str):
+async def send_email(to_email: str, subject: str, body: str, raise_on_error: bool = False):
     """Send email using Resend API"""
     if not RESEND_API_KEY:
-        logging.warning("RESEND_API_KEY not set - skipping email send")
+        error_msg = "RESEND_API_KEY is missing. Email service not configured."
+        if raise_on_error:
+            raise RuntimeError(error_msg)
+        logging.error(error_msg)
         return
 
     async with httpx.AsyncClient() as client:
@@ -346,7 +350,8 @@ async def send_email(to_email: str, subject: str, body: str):
             logging.info(f"Email sent successfully to {to_email}")
         except Exception as e:
             logging.error(f"Failed to send email via Resend: {e}")
-            # Don't raise exception - just log the error
+            if raise_on_error:
+                raise
 
 def create_access_token(user_id: str, email: str, role: str) -> str:
     payload = {
@@ -450,17 +455,16 @@ async def register(user_data: UserCreate):
     user_dict = user.dict()
     user_dict["password_hash"] = hash_password(user_data.password)
 
-    await db.users.insert_one(user_dict)
+    # Send OTP email first - if it fails, don't create the user
+    await send_email(
+        user_data.email,
+        "Email Verification OTP - Shop Mate",
+        f"<h3>Your OTP is <b>{otp}</b></h3>",
+        raise_on_error=True
+    )
 
-    # Try to send email but don't fail registration if it fails
-    try:
-        await send_email(
-            user_data.email,
-            "Email Verification OTP - Shop Mate",
-            f"<h3>Your OTP is <b>{otp}</b></h3>"
-        )
-    except Exception as e:
-        logging.error(f"OTP email failed but user created: {e}")
+    # Only create user if email was sent successfully
+    await db.users.insert_one(user_dict)
 
     return {
         "message": "Registration successful. Please verify OTP.",
