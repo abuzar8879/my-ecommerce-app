@@ -59,30 +59,16 @@ db = client[db_name]
 # JWT Configuration
 JWT_SECRET = os.environ.get('JWT_SECRET', 'your-super-secret-key-change-in-production')
 JWT_ALGORITHM = 'HS256'
+# Email Configuration
+RESEND_API_KEY = os.getenv("RESEND_API_KEY")
+FROM_EMAIL = "ShopMate <no-reply@shopmate.app>"
+
 JWT_EXPIRATION_HOURS = 24 * 7  # 1 week
-
-
 
 # Email Configuration
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 FROM_EMAIL = "ShopMate <no-reply@shopmate.app>"
 
-async def send_email(to: str, subject: str, html: str):
-    async with httpx.AsyncClient() as client:
-        res = await client.post(
-            "https://api.resend.com/emails",
-            headers={
-                "Authorization": f"Bearer {RESEND_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "from": FROM_EMAIL,
-                "to": [to],
-                "subject": subject,
-                "html": html,
-            },
-        )
-        res.raise_for_status()
 
 # OTP Configuration
 OTP_EXPIRY_MINUTES = 10
@@ -350,7 +336,7 @@ async def send_email(to_email: str, subject: str, body: str):
                     "Content-Type": "application/json"
                 },
                 json={
-                    "from": "ShopMate <no-reply@shopmate.app>",
+                    "from": FROM_EMAIL,
                     "to": [to_email],
                     "subject": subject,
                     "html": body
