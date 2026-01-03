@@ -112,8 +112,10 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_origin_regex=r"https://.*\.(vercel\.app|onrender\.com)",
+    allow_origins=[
+        "https://shopmate-e5dbpu6ea-abuzar-khans-projects-e87a6346.vercel.app",
+        "http://localhost:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -131,7 +133,7 @@ class UserBase(BaseModel):
 
 class UserCreate(BaseModel):
     name: str
-    email: EmailStr
+    email: str
     password: str
     role: str = "user"
 
@@ -447,6 +449,44 @@ async def login(login_data: UserLogin, request: Request):
 
 # OTP AUTH ROUTES
 @api_router.post("/auth/register")
+async def register(user_data: UserCreate):
+    # Check if user already exists
+    existing_user = await db.users.find_one({"email": user_data.email})
+    if existing_user:
+        raise HTTPException(status_code=400, detail="User already exists")
+
+    # Hash password
+    hashed_password = hash_password(user_data.password)
+
+    # Create user
+    user = User(**user_data.dict())
+    user_dict = user.dict()
+    user_dict["password_hash"] = hashed_password
+
+    # Generate OTP
+    otp = generate_otp()
+    otp_expires = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)
+
+    user_dict["otp"] = otp
+    user_dict["otpExpires"] = otp_expires
+
+    await db.users.insert_one(user_dict)
+
+    # Send OTP email
+    subject = "Verify Your Email - Shop Mate"
+    body = f"""
+    <html>
+    <body>
+        <h2>Welcome to Shop Mate!</h2>
+        <p>Your OTP for email verification is: <strong>{otp}</strong></p>
+        <p>This OTP will expire in {OTP_EXPIRY_MINUTES} minutes.</p>
+        <p>Please verify your email to complete registration.</p>
+    </body>
+    </html>
+    """
+    await send_email(user_data.email, subject, body)
+
+    return {"message": "User registered successfully. Please check your email for OTP verification."}
 
 @api_router.post("/auth/resend-otp")
 async def resend_otp(email: EmailStr):
