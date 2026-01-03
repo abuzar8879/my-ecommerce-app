@@ -445,58 +445,60 @@ async def login(login_data: UserLogin, request: Request):
 # OTP AUTH ROUTES
 @api_router.post("/auth/register")
 async def register(user_data: UserCreate):
+    existing_user = await db.users.find_one({"email": user_data.email})
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    otp = generate_otp()
+    otp_expires = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)
+
+    user = User(**user_data.dict(exclude={"password"}))
+    user.isVerified = False
+    user.otp = otp
+    user.otpExpires = otp_expires
+
+    user_dict = user.dict()
+    user_dict["password_hash"] = hash_password(user_data.password)
+
+    await db.users.insert_one(user_dict)
+
     try:
-        logging.info(f"Registration attempt for email: {user_data.email}")
-
-        # Check if user exists
-        existing_user = await db.users.find_one({"email": user_data.email})
-        if existing_user:
-            logging.warning(f"User already exists: {user_data.email}")
-            raise HTTPException(status_code=400, detail="Email already registered")
-
-        # Generate OTP and set expiry
-        otp = generate_otp()
-        otp_expires = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)
-        logging.info(f"Generated OTP for {user_data.email}: {otp}")
-
-        # Send OTP email FIRST (before inserting user)
-        subject = "Email Verification OTP - Shop Mate"
-        body = f"""
-        <html>
-        <body>
-            <h2>Welcome to Shop Mate!</h2>
-            <p>Your OTP for email verification is: <strong>{otp}</strong></p>
-            <p>This OTP will expire in {OTP_EXPIRY_MINUTES} minutes.</p>
-            <p>Please verify your email to complete registration.</p>
-        </body>
-        </html>
-        """
-        await send_email(user_data.email, subject, body)
-
-        # Only insert user AFTER email is sent successfully
-        hashed_password = hash_password(user_data.password)
-        user = User(**user_data.dict(exclude={"password"}))
-        user.isVerified = False
-        user.otp = otp
-        user.otpExpires = otp_expires
-        user_dict = user.dict()
-        user_dict["password_hash"] = hashed_password
-
-        logging.info(f"Inserting user: {user_dict}")
-
-        # Insert user
-        result = await db.users.insert_one(user_dict)
-        logging.info(f"User inserted with ID: {result.inserted_id}")
-
-        return {
-            "user": user.dict(),
-            "message": "User registered successfully. Please check your email for OTP verification."
-        }
-    except HTTPException:
-        raise
+        await send_email(
+            user_data.email,
+            "Email Verification OTP - Shop Mate",
+            f"<h3>Your OTP is <b>{otp}</b></h3>"
+        )
     except Exception as e:
-        logging.error(f"Registration error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
+        logging.error(f"OTP email failed but user created: {e}")
+
+    return {
+        "message": "Registration successful. Please verify OTP.",
+        "email": user_data.email
+    }
+
+@api_router.post("/auth/resend-otp")
+async def resend_otp(email: EmailStr):
+    user = await db.users.find_one({"email": email})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.get("isVerified"):
+        raise HTTPException(status_code=400, detail="Email already verified")
+
+    otp = generate_otp()
+    otp_expires = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)
+
+    await db.users.update_one(
+        {"email": email},
+        {"$set": {"otp": otp, "otpExpires": otp_expires}}
+    )
+
+    try:
+        await send_email(email, "Resend OTP - Shop Mate", f"<b>{otp}</b>")
+    except Exception as e:
+        logging.error(f"Resend OTP failed: {e}")
+
+    return {"message": "OTP resent successfully"}
 
 class VerifyOTPRequest(BaseModel):
     email: EmailStr
