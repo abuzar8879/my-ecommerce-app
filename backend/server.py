@@ -17,9 +17,9 @@ import random
 from datetime import datetime, timezone, timedelta
 import bcrypt
 from jose import jwt
-from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
 from pydantic import BaseModel as PydanticBaseModel
 from bson import ObjectId
+import httpx
 
 import cloudinary
 import cloudinary.uploader
@@ -340,23 +340,31 @@ def generate_otp() -> str:
     return str(random.randint(100000, 999999))
 
 async def send_email(to_email: str, subject: str, body: str):
-    """Send email using FastAPI-Mail"""
-    if not mail:
-        logging.warning("Email configuration not set - skipping email send")
+    """Send email using Resend API"""
+    if not RESEND_API_KEY:
+        logging.warning("RESEND_API_KEY not set - skipping email send")
         return
 
-    message = MessageSchema(
-        subject=subject,
-        recipients=[to_email],
-        body=body,
-        subtype="html"
-    )
-
-    try:
-        await mail.send_message(message)
-    except Exception as e:
-        logging.error(f"Failed to send email: {e}")
-        raise HTTPException(status_code=500, detail="Failed to send email")
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {RESEND_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "from": "ShopMate <no-reply@shopmate.app>",
+                    "to": [to_email],
+                    "subject": subject,
+                    "html": body
+                }
+            )
+            response.raise_for_status()
+            logging.info(f"Email sent successfully to {to_email}")
+        except Exception as e:
+            logging.error(f"Failed to send email via Resend: {e}")
+            raise HTTPException(status_code=500, detail="Failed to send email")
 
 def create_access_token(user_id: str, email: str, role: str) -> str:
     payload = {
