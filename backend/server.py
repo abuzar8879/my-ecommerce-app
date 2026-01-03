@@ -68,7 +68,7 @@ MAIL_USERNAME = os.environ.get('MAIL_USERNAME')
 MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
 MAIL_FROM = MAIL_USERNAME  # Use the authenticated email address
 
-MAIL_PORT = int(os.environ.get('MAIL_PORT', 465))
+MAIL_PORT = int(os.environ.get('MAIL_PORT', 587))
 MAIL_SERVER = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
 
 # FastAPI-Mail Configuration
@@ -79,8 +79,8 @@ if MAIL_USERNAME and MAIL_PASSWORD:
         MAIL_FROM=MAIL_FROM,
         MAIL_PORT=MAIL_PORT,
         MAIL_SERVER=MAIL_SERVER,
-        MAIL_STARTTLS=False,
-        MAIL_SSL_TLS=True,
+        MAIL_STARTTLS=True,
+        MAIL_SSL_TLS=False,
         USE_CREDENTIALS=True,
         VALIDATE_CERTS=True
     )
