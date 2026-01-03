@@ -65,6 +65,9 @@ JWT_EXPIRATION_HOURS = 24 * 7  # 1 week
 
 # Email Configuration
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY')
+MAIL_FROM_RAW = os.environ.get('MAIL_FROM_RAW') or 'ShopMate <no-reply@shopmate.app>'
+email_match = re.search(r'<([^>]+)>', MAIL_FROM_RAW)
+MAIL_FROM = email_match.group(1) if email_match else MAIL_FROM_RAW
 
 # OTP Configuration
 OTP_EXPIRY_MINUTES = 10
