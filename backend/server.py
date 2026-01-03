@@ -340,7 +340,7 @@ async def send_email(to_email: str, subject: str, body: str, raise_on_error: boo
                     "Content-Type": "application/json"
                 },
                 json={
-                    "from": FROM_EMAIL,
+                    "from": "onboarding@resend.dev",
                     "to": [to_email],
                     "subject": subject,
                     "html": body
