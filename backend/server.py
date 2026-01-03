@@ -66,17 +66,9 @@ JWT_EXPIRATION_HOURS = 24 * 7  # 1 week
 # Email Configuration
 MAIL_USERNAME = os.environ.get('MAIL_USERNAME')
 MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
-MAIL_FROM_RAW = os.environ.get('MAIL_FROM', MAIL_USERNAME)
-# Extract email address if it contains a name (e.g., "Name <email@domain.com>")
-import re
-email_match = re.search(r'<([^>]+)>', MAIL_FROM_RAW)
-MAIL_FROM = email_match.group(1) if email_match else MAIL_FROM_RAW
+MAIL_FROM = MAIL_USERNAME  # Use the authenticated email address
 
-# Validate email domain - use Gmail if the configured one is invalid
-if '@financetracker.local' in MAIL_FROM or not MAIL_FROM or MAIL_FROM == MAIL_USERNAME:
-    MAIL_FROM = MAIL_USERNAME  # Use the Gmail address
-
-MAIL_PORT = int(os.environ.get('MAIL_PORT', 587))
+MAIL_PORT = int(os.environ.get('MAIL_PORT', 465))
 MAIL_SERVER = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
 
 # FastAPI-Mail Configuration
@@ -87,8 +79,8 @@ if MAIL_USERNAME and MAIL_PASSWORD:
         MAIL_FROM=MAIL_FROM,
         MAIL_PORT=MAIL_PORT,
         MAIL_SERVER=MAIL_SERVER,
-        MAIL_STARTTLS=True,
-        MAIL_SSL_TLS=False,
+        MAIL_STARTTLS=False,
+        MAIL_SSL_TLS=True,
         USE_CREDENTIALS=True,
         VALIDATE_CERTS=True
     )
@@ -153,7 +145,7 @@ class UserBase(BaseModel):
 
 class UserCreate(BaseModel):
     name: str
-    email: str
+    email: EmailStr
     password: str
     role: str = "user"
 
@@ -451,7 +443,7 @@ async def login(login_data: UserLogin, request: Request):
     }
 
 # OTP AUTH ROUTES
-@api_router.post("/auth/register", response_model=dict)
+@api_router.post("/auth/register")
 async def register(user_data: UserCreate):
     try:
         logging.info(f"Registration attempt for email: {user_data.email}")
