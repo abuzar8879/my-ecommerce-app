@@ -43,8 +43,6 @@ const SettingsPage = () => {
     history: false,
     delete: false
   });
-  const [otpStep, setOtpStep] = useState(false); // Track if we're in OTP verification step
-  const [otpValue, setOtpValue] = useState('');
 
   const passwordForm = useForm({
     resolver: zodResolver(changePasswordSchema),
@@ -80,45 +78,20 @@ const SettingsPage = () => {
   };
 
   const handleChangePassword = async (data) => {
-    if (!otpStep) {
-      // Step 1: Request OTP
-      setIsLoading(prev => ({ ...prev, password: true }));
-      try {
-        await axios.post(`${API}/api/users/change-password/request-otp`, {
-          old_password: data.old_password,
-          new_password: data.new_password
-        });
-        toast.success('OTP sent to your email! Please check your inbox.');
-        setOtpStep(true);
-      } catch (error) {
-        console.error('OTP request error:', error);
-        toast.error(error.response?.data?.detail || 'Failed to send OTP');
-      } finally {
-        setIsLoading(prev => ({ ...prev, password: false }));
-      }
-    } else {
-      // Step 2: Verify OTP and change password
-      setIsLoading(prev => ({ ...prev, password: true }));
-      try {
-        await axios.post(`${API}/api/users/change-password/verify-otp`, {
-          otp: otpValue
-        });
-        toast.success('Password changed successfully!');
-        passwordForm.reset();
-        setOtpStep(false);
-        setOtpValue('');
-      } catch (error) {
-        console.error('OTP verification error:', error);
-        toast.error(error.response?.data?.detail || 'Failed to verify OTP');
-      } finally {
-        setIsLoading(prev => ({ ...prev, password: false }));
-      }
+    setIsLoading(prev => ({ ...prev, password: true }));
+    try {
+      await axios.put(`${API}/api/users/change-password`, {
+        old_password: data.old_password,
+        new_password: data.new_password
+      });
+      toast.success('Password changed successfully!');
+      passwordForm.reset();
+    } catch (error) {
+      console.error('Change password error:', error);
+      toast.error(error.response?.data?.detail || 'Failed to change password');
+    } finally {
+      setIsLoading(prev => ({ ...prev, password: false }));
     }
-  };
-
-  const handleCancelOtp = () => {
-    setOtpStep(false);
-    setOtpValue('');
   };
 
   const handleDeleteAddress = async () => {
@@ -174,8 +147,7 @@ const SettingsPage = () => {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {!otpStep ? (
-            <form onSubmit={passwordForm.handleSubmit(handleChangePassword)} className="space-y-4">
+          <form onSubmit={passwordForm.handleSubmit(handleChangePassword)} className="space-y-4">
               <div>
                 <Label htmlFor="old_password">Current Password</Label>
                 <div className="relative">
@@ -243,53 +215,9 @@ const SettingsPage = () => {
               </div>
 
               <Button type="submit" disabled={isLoading.password}>
-                {isLoading.password ? 'Requesting OTP...' : 'Change Password'}
+                {isLoading.password ? 'Changing...' : 'Change Password'}
               </Button>
             </form>
-          ) : (
-            <div className="space-y-4">
-              <div className="text-center">
-                <p className="text-gray-600 mb-4">
-                  We've sent a 6-digit OTP to your email. Please enter it below to complete the password change.
-                </p>
-              </div>
-
-              <div>
-                <Label htmlFor="otp">Enter OTP</Label>
-                <Input
-                  id="otp"
-                  type="text"
-                  value={otpValue}
-                  onChange={(e) => setOtpValue(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  placeholder="Enter 6-digit OTP"
-                  className="text-center text-lg tracking-widest"
-                  maxLength={6}
-                />
-                {otpValue.length !== 6 && otpValue.length > 0 && (
-                  <p className="text-sm text-red-600 mt-1">Please enter a valid 6-digit OTP</p>
-                )}
-              </div>
-
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  onClick={handleCancelOtp}
-                  variant="outline"
-                  className="flex-1"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  onClick={() => handleChangePassword(null)}
-                  disabled={isLoading.password || otpValue.length !== 6}
-                  className="flex-1"
-                >
-                  {isLoading.password ? 'Verifying...' : 'Verify OTP'}
-                </Button>
-              </div>
-            </div>
-          )}
         </CardContent>
       </Card>
 

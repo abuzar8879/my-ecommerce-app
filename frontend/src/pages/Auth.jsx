@@ -5,10 +5,9 @@ import { useAuth } from '../App';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
-import { ShoppingCart, Mail, Lock, User, ArrowRight } from 'lucide-react';
+import { ShoppingCart, ArrowRight } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL?.replace(/\/$/, "");
 const API = BACKEND_URL;
@@ -27,13 +26,7 @@ export default function Auth() {
     role: 'user',
   });
   const [loginData, setLoginData] = useState({ email: '', password: '' });
-  const [otpData, setOtpData] = useState({ email: '', otp: '' });
-  const [resetData, setResetData] = useState({
-    email: '',
-    otp: '',
-    newPassword: '',
-  });
-  const [resetStep, setResetStep] = useState('request'); // 'request' | 'verify' | 'reset'
+
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -66,33 +59,18 @@ export default function Auth() {
     setLoading(true);
     try {
       await axios.post(`${API}/api/auth/register`, { name, email, password, role: 'user' });
-      setOtpData({ email, otp: '' });
-      setActiveTab('verify');
-      toast.success('Signup successful! Please check your email for OTP verification.');
+      toast.success('Account created successfully! You can now log in.');
+      setActiveTab('login');
+      setSignupData({ name: '', email: '', password: '', role: 'user' });
     } catch (err) {
       const errMsg = err.response?.data?.message || 'Signup failed';
-      toast.error(errMsg);
+      toast.error(errMsg);    
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleVerify(e) {
-    e.preventDefault();
-    const { email, otp } = otpData;
 
-    setLoading(true);
-    try {
-      await axios.post(`${API}/api/auth/verify-otp`, { email, otp });
-      toast.success('Account verified successfully!');
-      setActiveTab('login');
-    } catch (err) {
-      const errMsg = err.response?.data?.message || 'Verification failed';
-      toast.error(errMsg);
-    } finally {
-      setLoading(false);
-    }
-  }
 
   async function handleLogin(e) {
     e.preventDefault();
@@ -109,76 +87,7 @@ export default function Auth() {
     }
   }
 
-  async function requestResetOtp(e) {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      await axios.post(`${API}/api/auth/forgot-password/request`, {
-        email: resetData.email,
-      });
-      toast.success('OTP sent to your email!');
-      setResetStep('verify');
-    } catch (err) {
-      const errMsg = err.response?.data?.message || 'Failed to send OTP';
-      toast.error(errMsg);
-    } finally {
-      setLoading(false);
-    }
-  }
 
-  async function verifyResetOtp(e) {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      await axios.post(`${API}/api/auth/forgot-password/verify`, {
-        email: resetData.email,
-        otp: resetData.otp,
-      });
-      toast.success('OTP verified!');
-      setResetStep('reset');
-    } catch (err) {
-      const errMsg = err.response?.data?.message || 'OTP verification failed';
-      toast.error(errMsg);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function resetPassword(e) {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      await axios.post(`${API}/api/auth/forgot-password/reset`, {
-        email: resetData.email,
-        otp: resetData.otp,
-        newPassword: resetData.newPassword,
-      });
-      toast.success('Password reset successful!');
-      setActiveTab('login');
-      setResetStep('request');
-      setResetData({ email: '', otp: '', newPassword: '' });
-    } catch (err) {
-      const errMsg = err.response?.data?.message || 'Password reset failed';
-      toast.error(errMsg);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function resendOtp() {
-    setLoading(true);
-    try {
-      await axios.post(`${API}/api/auth/forgot-password/request`, {
-        email: resetData.email,
-      });
-      toast.success('OTP resent!');
-    } catch (err) {
-      const errMsg = err.response?.data?.message || 'Failed to resend OTP';
-      toast.error(errMsg);
-    } finally {
-      setLoading(false);
-    }
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center py-12 px-4">
@@ -214,7 +123,7 @@ export default function Auth() {
           </div>
           <div className="relative z-10">
             <p className="text-xs text-blue-200">
-              Secure authentication with email verification and OTP-based password reset.
+              Secure authentication.
             </p>
           </div>
           {/* Background decoration */}
@@ -276,18 +185,8 @@ export default function Auth() {
                 </Button>
               </form>
 
-              <div className="text-center">
-                <button
-                  type="button"
-                  className="text-sm text-blue-600 hover:underline"
-                  onClick={() => {
-                    setResetStep('request');
-                    setActiveTab('forgot');
-                  }}
-                >
-                  Forgot your password?
-                </button>
-              </div>
+              
+
             </TabsContent>
 
             {/* Signup Tab */}
@@ -347,188 +246,9 @@ export default function Auth() {
               </form>
             </TabsContent>
 
-            {/* Email Verification Tab */}
-            <TabsContent value="verify" className="space-y-6">
-              <div className="text-center mb-6">
-                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Mail className="h-8 w-8 text-blue-600" />
-                </div>
-                <h2 className="text-2xl font-bold text-gray-900">Verify Your Email</h2>
-                <p className="text-gray-600">We've sent a 6-digit OTP to your email</p>
-              </div>
 
-              <form onSubmit={handleVerify} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="verify-email">Email</Label>
-                  <Input
-                    id="verify-email"
-                    type="email"
-                    placeholder="Enter your email"
-                    value={otpData.email}
-                    onChange={(e) =>
-                      setOtpData({ ...otpData, email: e.target.value })
-                    }
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="verify-otp">OTP</Label>
-                  <Input
-                    id="verify-otp"
-                    type="text"
-                    placeholder="Enter 6-digit OTP"
-                    value={otpData.otp}
-                    onChange={(e) =>
-                      setOtpData({ ...otpData, otp: e.target.value })
-                    }
-                    maxLength={6}
-                    required
-                  />
-                </div>
-                <Button
-                  type="submit"
-                  className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
-                  disabled={loading}
-                >
-                  {loading ? 'Verifying...' : 'Verify Account'}
-                </Button>
-              </form>
 
-              <div className="text-center">
-                <button
-                  type="button"
-                  className="text-sm text-blue-600 hover:underline"
-                  onClick={() => setActiveTab('login')}
-                >
-                  Back to Login
-                </button>
-              </div>
-            </TabsContent>
 
-            {/* Forgot Password Tab */}
-            <TabsContent value="forgot" className="space-y-6">
-              <div className="text-center mb-6">
-                <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Lock className="h-8 w-8 text-purple-600" />
-                </div>
-                <h2 className="text-2xl font-bold text-gray-900">Reset Password</h2>
-                <p className="text-gray-600">
-                  {resetStep === 'request' && 'Enter your email to receive a reset OTP'}
-                  {resetStep === 'verify' && 'Enter the OTP sent to your email'}
-                  {resetStep === 'reset' && 'Enter your new password'}
-                </p>
-              </div>
-
-              {resetStep === 'request' && (
-                <form onSubmit={requestResetOtp} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="reset-email">Email</Label>
-                    <Input
-                      id="reset-email"
-                      type="email"
-                      placeholder="Enter your email"
-                      value={resetData.email}
-                      onChange={(e) =>
-                        setResetData({ ...resetData, email: e.target.value })
-                      }
-                      required
-                    />
-                  </div>
-                  <Button
-                    type="submit"
-                    className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
-                    disabled={loading}
-                  >
-                    {loading ? 'Sending...' : 'Send Reset OTP'}
-                  </Button>
-                </form>
-              )}
-
-              {resetStep === 'verify' && (
-                <form onSubmit={verifyResetOtp} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="reset-verify-email">Email</Label>
-                    <Input
-                      id="reset-verify-email"
-                      type="email"
-                      value={resetData.email}
-                      onChange={(e) =>
-                        setResetData({ ...resetData, email: e.target.value })
-                      }
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="reset-otp">OTP</Label>
-                    <Input
-                      id="reset-otp"
-                      type="text"
-                      placeholder="Enter 6-digit OTP"
-                      value={resetData.otp}
-                      onChange={(e) =>
-                        setResetData({ ...resetData, otp: e.target.value })
-                      }
-                      maxLength={6}
-                      required
-                    />
-                  </div>
-                  <Button
-                    type="submit"
-                    className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
-                    disabled={loading}
-                  >
-                    {loading ? 'Verifying...' : 'Verify OTP'}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full mt-2"
-                    onClick={resendOtp}
-                    disabled={loading}
-                  >
-                    Resend OTP
-                  </Button>
-                </form>
-              )}
-
-              {resetStep === 'reset' && (
-                <form onSubmit={resetPassword} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="reset-new-password">New Password</Label>
-                    <Input
-                      id="reset-new-password"
-                      type="password"
-                      placeholder="Enter new password"
-                      value={resetData.newPassword}
-                      onChange={(e) =>
-                        setResetData({
-                          ...resetData,
-                          newPassword: e.target.value,
-                        })
-                      }
-                      required
-                    />
-                  </div>
-                  <Button
-                    type="submit"
-                    className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
-                    disabled={loading}
-                  >
-                    {loading ? 'Resetting...' : 'Reset Password'}
-                  </Button>
-                </form>
-              )}
-
-              <div className="text-center">
-                <button
-                  type="button"
-                  className="text-sm text-blue-600 hover:underline"
-                  onClick={() => setActiveTab('login')}
-                >
-                  Back to Login
-                </button>
-              </div>
-            </TabsContent>
           </Tabs>
         </div>
       </div>

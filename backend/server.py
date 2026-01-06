@@ -10,17 +10,17 @@ import os
 import logging
 import re
 from pathlib import Path
-from pydantic import BaseModel, Field, EmailStr, validator
+from pydantic import BaseModel, Field, validator, EmailStr
 from typing import List, Optional, Dict, Any
 import uuid
-
 import random
+
+
 from datetime import datetime, timezone, timedelta
 import bcrypt
 from jose import jwt
-from pydantic import BaseModel as PydanticBaseModel
+
 from bson import ObjectId
-import httpx
 
 import cloudinary
 import cloudinary.uploader
@@ -29,6 +29,8 @@ import io
 
 from dotenv import load_dotenv
 load_dotenv(dotenv_path=Path(__file__).parent / ".env")
+
+
 
 
 ROOT_DIR = Path(__file__).parent
@@ -60,22 +62,8 @@ db = client[db_name]
 # JWT Configuration
 JWT_SECRET = os.environ.get('JWT_SECRET', 'your-super-secret-key-change-in-production')
 JWT_ALGORITHM = 'HS256'
-# Email Configuration
-RESEND_API_KEY = os.getenv("RESEND_API_KEY")
-FROM_EMAIL = os.getenv("FROM_EMAIL")
-
-if not RESEND_API_KEY:
-    raise RuntimeError("RESEND_API_KEY is not set")
-
-if not FROM_EMAIL:
-    raise RuntimeError("FROM_EMAIL is not set")
 
 JWT_EXPIRATION_HOURS = 24 * 7  # 1 week
-
-
-
-# OTP Configuration
-OTP_EXPIRY_MINUTES = 10
 
 # Security
 security = HTTPBearer()
@@ -190,9 +178,6 @@ class User(UserBase):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     mobile_number: Optional[str] = None
     delivery_address: Optional[Dict[str, Any]] = None  # Make it flexible to handle different address formats
-    isVerified: bool = False
-    otp: Optional[str] = None
-    otpExpires: Optional[datetime] = None
 
 
 
@@ -295,13 +280,6 @@ class ChangePasswordRequest(BaseModel):
     old_password: str
     new_password: str
 
-class ChangePasswordOTPRequest(BaseModel):
-    old_password: str
-    new_password: str
-
-class VerifyChangePasswordOTPRequest(BaseModel):
-    otp: str
-
 class DeleteAccountRequest(BaseModel):
     password: str
 
@@ -321,47 +299,6 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
 
-# ==================== OTP UTILITIES ====================
-
-def generate_otp() -> str:
-    """Generate a 6-digit OTP"""
-    return str(random.randint(100000, 999999))
-
-async def send_email(to_email: str, subject: str, body: str, raise_on_error: bool = False):
-    """Send email using Resend API"""
-    if not RESEND_API_KEY:
-        error_msg = "RESEND_API_KEY is missing. Email service not configured."
-        if raise_on_error:
-            raise RuntimeError(error_msg)
-        logging.error(error_msg)
-        return
-
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(
-                "https://api.resend.com/emails",
-                headers={
-                    "Authorization": f"Bearer {RESEND_API_KEY}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "from": FROM_EMAIL,
-                    "to": [to_email],
-                    "subject": subject,
-                    "html": body
-                }
-            )
-            if raise_on_error:
-                response.raise_for_status()
-            else:
-                if response.status_code >= 400:
-                    logging.error(f"Failed to send email via Resend: {response.status_code} {response.text}")
-                    return
-            logging.info(f"Email sent successfully to {to_email}")
-        except Exception as e:
-            logging.error(f"Failed to send email via Resend: {e}")
-            if raise_on_error:
-                raise
 
 def create_access_token(user_id: str, email: str, role: str) -> str:
     payload = {
@@ -396,12 +333,14 @@ async def get_admin_user(current_user: User = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
 
+@api_router.get("/welcome")
+async def welcome(request: Request):
+    logging.info(f"Request received: {request.method} {request.path}")
+    return {"message": "Welcome to the E-Commerce API!"}
 
 
 
-# ==================== ROUTES ====================
 
-# Health Check
 @api_router.get("/")
 async def root():
     return {"message": "E-Commerce API is running"}
@@ -415,9 +354,7 @@ async def login(login_data: UserLogin, request: Request):
     if not user_doc:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    # Check if email is verified
-    if not user_doc.get("isVerified", False):
-        raise HTTPException(status_code=403, detail="Please verify your email using OTP before logging in")
+
 
     # Verify password
     if not verify_password(login_data.password, user_doc["password_hash"]):
@@ -447,7 +384,6 @@ async def login(login_data: UserLogin, request: Request):
         "message": "Login successful"
     }
 
-# OTP AUTH ROUTES
 @api_router.post("/auth/register")
 async def register(user_data: UserCreate):
     # Check if user already exists
@@ -463,220 +399,17 @@ async def register(user_data: UserCreate):
     user_dict = user.dict()
     user_dict["password_hash"] = hashed_password
 
-    # Generate OTP
-    otp = generate_otp()
-    otp_expires = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)
-
-    user_dict["otp"] = otp
-    user_dict["otpExpires"] = otp_expires
-
     await db.users.insert_one(user_dict)
 
-    # Send OTP email
-    subject = "Verify Your Email - Shop Mate"
-    body = f"""
-    <html>
-    <body>
-        <h2>Welcome to Shop Mate!</h2>
-        <p>Your OTP for email verification is: <strong>{otp}</strong></p>
-        <p>This OTP will expire in {OTP_EXPIRY_MINUTES} minutes.</p>
-        <p>Please verify your email to complete registration.</p>
-    </body>
-    </html>
-    """
-    await send_email(user_data.email, subject, body)
+    return {"message": "User registered successfully."}
 
-    return {"message": "User registered successfully. Please check your email for OTP verification."}
 
-@api_router.post("/auth/resend-otp")
-async def resend_otp(email: EmailStr):
-    user = await db.users.find_one({"email": email})
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
 
-    if user.get("isVerified"):
-        raise HTTPException(status_code=400, detail="Email already verified")
 
-    otp = generate_otp()
-    otp_expires = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)
 
-    await db.users.update_one(
-        {"email": email},
-        {"$set": {"otp": otp, "otpExpires": otp_expires}}
-    )
 
-    try:
-        await send_email(email, "Resend OTP - Shop Mate", f"<b>{otp}</b>")
-    except Exception as e:
-        logging.error(f"Resend OTP failed: {e}")
 
-    return {"message": "OTP resent successfully"}
 
-class VerifyOTPRequest(BaseModel):
-    email: EmailStr
-    otp: str
-
-@api_router.post("/auth/verify-otp", response_model=dict)
-async def verify_otp(verify_data: VerifyOTPRequest):
-    # Find user
-    user_doc = await db.users.find_one({"email": verify_data.email})
-    if not user_doc:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    # Check if already verified
-    if user_doc.get("isVerified", False):
-        raise HTTPException(status_code=400, detail="Email already verified")
-
-    # Check OTP
-    if user_doc.get("otp") != verify_data.otp:
-        raise HTTPException(status_code=400, detail="Invalid OTP")
-
-    # Check expiry - ensure both datetimes are offset-aware
-    current_time = datetime.now(timezone.utc)
-    otp_expires = user_doc["otpExpires"]
-    if isinstance(otp_expires, datetime) and otp_expires.tzinfo is None:
-        # If stored as naive datetime, assume UTC
-        otp_expires = otp_expires.replace(tzinfo=timezone.utc)
-    if current_time > otp_expires:
-        raise HTTPException(status_code=400, detail="OTP has expired")
-
-    # Update user
-    await db.users.update_one(
-        {"email": verify_data.email},
-        {"$set": {"isVerified": True}, "$unset": {"otp": "", "otpExpires": ""}}
-    )
-
-    return {"message": "Email verified successfully! You can now log in."}
-
-class ForgotPasswordRequest(BaseModel):
-    email: EmailStr
-
-class ForgotPasswordVerifyRequest(BaseModel):
-    email: EmailStr
-    otp: str
-
-class ForgotPasswordResetRequest(BaseModel):
-    email: EmailStr
-    otp: str
-    new_password: str
-
-@api_router.post("/auth/forgot-password/request", response_model=dict)
-async def forgot_password_request(request_data: ForgotPasswordRequest):
-    # Find user
-    user_doc = await db.users.find_one({"email": request_data.email})
-    if not user_doc:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    # Generate OTP
-    otp = generate_otp()
-    otp_expires = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)
-
-    # Save OTP with purpose
-    await db.users.update_one(
-        {"email": request_data.email},
-        {"$set": {"otp": otp, "otpExpires": otp_expires, "otpPurpose": "reset"}}
-    )
-
-    # Send email
-    subject = "Password Reset OTP - Shop Mate"
-    body = f"""
-    <html>
-    <body>
-        <h2>Password Reset</h2>
-        <p>Your OTP for password reset is: <strong>{otp}</strong></p>
-        <p>This OTP will expire in {OTP_EXPIRY_MINUTES} minutes.</p>
-        <p>If you didn't request this, please ignore this email.</p>
-    </body>
-    </html>
-    """
-    await send_email(request_data.email, subject, body)
-
-    return {"message": "OTP sent to your email for password reset"}
-
-@api_router.post("/auth/forgot-password/verify", response_model=dict)
-async def forgot_password_verify(verify_data: ForgotPasswordVerifyRequest):
-    # Find user
-    user_doc = await db.users.find_one({"email": verify_data.email})
-    if not user_doc:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    # Check OTP purpose
-    if user_doc.get("otpPurpose") != "reset":
-        raise HTTPException(status_code=400, detail="Invalid OTP purpose")
-
-    # Check OTP
-    if user_doc.get("otp") != verify_data.otp:
-        raise HTTPException(status_code=400, detail="Invalid OTP")
-
-    # Check expiry - ensure both datetimes are offset-aware
-    current_time = datetime.now(timezone.utc)
-    otp_expires = user_doc["otpExpires"]
-    if isinstance(otp_expires, datetime) and otp_expires.tzinfo is None:
-        # If stored as naive datetime, assume UTC
-        otp_expires = otp_expires.replace(tzinfo=timezone.utc)
-    if current_time > otp_expires:
-        raise HTTPException(status_code=400, detail="OTP has expired")
-
-    return {"message": "OTP verified successfully"}
-
-@api_router.post("/auth/forgot-password/reset", response_model=dict)
-async def forgot_password_reset(reset_data: ForgotPasswordResetRequest):
-    # Find user
-    user_doc = await db.users.find_one({"email": reset_data.email})
-    if not user_doc:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    # Check OTP purpose
-    if user_doc.get("otpPurpose") != "reset":
-        raise HTTPException(status_code=400, detail="Invalid OTP purpose")
-
-    # Check OTP
-    if user_doc.get("otp") != reset_data.otp:
-        raise HTTPException(status_code=400, detail="Invalid OTP")
-
-    # Check expiry - ensure both datetimes are offset-aware
-    current_time = datetime.now(timezone.utc)
-    otp_expires = user_doc["otpExpires"]
-    if isinstance(otp_expires, datetime) and otp_expires.tzinfo is None:
-        # If stored as naive datetime, assume UTC
-        otp_expires = otp_expires.replace(tzinfo=timezone.utc)
-    if current_time > otp_expires:
-        raise HTTPException(status_code=400, detail="OTP has expired")
-
-    # Hash new password
-    hashed_password = hash_password(reset_data.new_password)
-
-    # Update password and clear OTP
-    await db.users.update_one(
-        {"email": reset_data.email},
-        {"$set": {"password_hash": hashed_password}, "$unset": {"otp": "", "otpExpires": "", "otpPurpose": ""}}
-    )
-
-    return {"message": "Password reset successfully"}
-
-@api_router.get("/auth/verify")
-async def verify_email(token: str):
-    # Find verification token
-    verification = await db.email_verifications.find_one({"token": token})
-    if not verification:
-        raise HTTPException(status_code=400, detail="Invalid verification token")
-
-    # Check if token is expired
-    if datetime.now(timezone.utc) > verification["expires_at"]:
-        raise HTTPException(status_code=400, detail="Verification token has expired")
-
-    # Update user verification status
-    await db.users.update_one(
-        {"id": verification["user_id"]},
-        {"$set": {"is_verified": True}}
-    )
-
-    # Delete the verification token
-    await db.email_verifications.delete_one({"token": token})
-
-    return {
-        "message": "Email verified successfully! You can now log in to your account."
-    }
 
 @api_router.get("/auth/me", response_model=User)
 async def get_me(current_user: User = Depends(get_current_user)):
@@ -771,110 +504,7 @@ async def change_password(
         logging.error(f"Password change error: {e}")
         raise HTTPException(status_code=500, detail="Failed to change password")
 
-@api_router.post("/users/change-password/request-otp")
-async def request_change_password_otp(
-    password_data: ChangePasswordOTPRequest,
-    current_user: User = Depends(get_current_user)
-):
-    """Request OTP for password change"""
-    try:
-        # Get user document
-        user_doc = await db.users.find_one({"id": current_user.id})
-        if not user_doc:
-            raise HTTPException(status_code=404, detail="User not found")
 
-        # Verify old password
-        if not verify_password(password_data.old_password, user_doc["password_hash"]):
-            raise HTTPException(status_code=400, detail="Current password is incorrect")
-
-        # Generate OTP and set expiry
-        otp = generate_otp()
-        otp_expires = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)
-
-        # Store OTP and new password temporarily
-        await db.users.update_one(
-            {"id": current_user.id},
-            {
-                "$set": {
-                    "otp": otp,
-                    "otpExpires": otp_expires,
-                    "otpPurpose": "change_password",
-                    "pendingNewPassword": hash_password(password_data.new_password)
-                }
-            }
-        )
-
-        # Send OTP email
-        subject = "Password Change OTP - Shop Mate"
-        body = f"""
-        <html>
-        <body>
-            <h2>Password Change Verification</h2>
-            <p>Your OTP for password change is: <strong>{otp}</strong></p>
-            <p>This OTP will expire in {OTP_EXPIRY_MINUTES} minutes.</p>
-            <p>If you didn't request this change, please ignore this email.</p>
-        </body>
-        </html>
-        """
-        await send_email(current_user.email, subject, body)
-
-        return {"message": "OTP sent to your email for password change verification"}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logging.error(f"Password change OTP request error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to send OTP")
-
-@api_router.post("/users/change-password/verify-otp")
-async def verify_change_password_otp(
-    otp_data: VerifyChangePasswordOTPRequest,
-    current_user: User = Depends(get_current_user)
-):
-    """Verify OTP and change password"""
-    try:
-        # Get user document
-        user_doc = await db.users.find_one({"id": current_user.id})
-        if not user_doc:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        # Check OTP purpose
-        if user_doc.get("otpPurpose") != "change_password":
-            raise HTTPException(status_code=400, detail="Invalid OTP purpose")
-
-        # Check OTP
-        if user_doc.get("otp") != otp_data.otp:
-            raise HTTPException(status_code=400, detail="Invalid OTP")
-
-        # Check expiry
-        current_time = datetime.now(timezone.utc)
-        otp_expires = user_doc["otpExpires"]
-        if isinstance(otp_expires, datetime) and otp_expires.tzinfo is None:
-            otp_expires = otp_expires.replace(tzinfo=timezone.utc)
-        if current_time > otp_expires:
-            raise HTTPException(status_code=400, detail="OTP has expired")
-
-        # Get the pending new password
-        new_password_hash = user_doc.get("pendingNewPassword")
-        if not new_password_hash:
-            raise HTTPException(status_code=400, detail="No pending password change found")
-
-        # Update password and clear OTP data
-        await db.users.update_one(
-            {"id": current_user.id},
-            {
-                "$set": {"password_hash": new_password_hash},
-                "$unset": {"otp": "", "otpExpires": "", "otpPurpose": "", "pendingNewPassword": ""}
-            }
-        )
-
-        return {"message": "Password changed successfully"}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logging.error(f"Password change OTP verification error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to change password")
 
 @api_router.delete("/users/delete-address")
 async def delete_address(current_user: User = Depends(get_current_user)):
@@ -1236,7 +866,17 @@ async def create_order(order_data: OrderCreate, current_user: User = Depends(get
 
         # Reduce stock for each product in the order
         for order_item in order_data.products:
+            # Try to find product by id field first
             product = await db.products.find_one({"id": order_item.product_id})
+
+            # If not found and product_id looks like ObjectId, try by _id
+            if not product:
+                try:
+                    if ObjectId.is_valid(order_item.product_id):
+                        product = await db.products.find_one({"_id": ObjectId(order_item.product_id)})
+                except Exception as e:
+                    logging.warning(f"ObjectId conversion failed for product {order_item.product_id}: {e}")
+
             if not product:
                 logging.error(f"Product {order_item.product_id} not found during stock reduction")
                 raise HTTPException(status_code=500, detail=f"Product {order_item.product_id} not found")
@@ -1246,12 +886,24 @@ async def create_order(order_data: OrderCreate, current_user: User = Depends(get
                 logging.error(f"Insufficient stock for product {order_item.product_id}: requested {order_item.quantity}, available {current_stock}")
                 raise HTTPException(status_code=400, detail=f"Insufficient stock for product {order_item.name}")
 
-            # Reduce stock
+            # Reduce stock - try both id and _id for update
             new_stock = current_stock - order_item.quantity
-            await db.products.update_one(
+            update_result = await db.products.update_one(
                 {"id": order_item.product_id},
                 {"$set": {"stock": new_stock}}
             )
+
+            # If no document was updated and product_id looks like ObjectId, try by _id
+            if update_result.modified_count == 0:
+                try:
+                    if ObjectId.is_valid(order_item.product_id):
+                        update_result = await db.products.update_one(
+                            {"_id": ObjectId(order_item.product_id)},
+                            {"$set": {"stock": new_stock}}
+                        )
+                except Exception as e:
+                    logging.warning(f"ObjectId conversion failed for stock update {order_item.product_id}: {e}")
+
             logging.info(f"Reduced stock for product {order_item.product_id} from {current_stock} to {new_stock}")
 
         # Return Order instance to ensure proper serialization
